@@ -6,20 +6,11 @@ export type MessageRole = "user" | "assistant";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
-export type MeshKind = "box" | "cylinder" | "sphere" | "plate";
+export type ChatMode = "plan" | "chat" | "build";
 
-export interface Hole {
-  position: [number, number, number];
-  radius: number;
-}
-
-export interface MeshDescriptor {
-  kind: MeshKind;
-  size?: [number, number, number];
-  radius?: number;
-  height?: number;
-  color: string;
-  holes?: Hole[];
+export interface TriangleMesh {
+  positions: number[];
+  triangleCount: number;
 }
 
 export interface ChatMessage {
@@ -35,7 +26,7 @@ export interface BackendResult {
   message: string;
   cadCode: string;
   language: BackendName;
-  mesh: MeshDescriptor | null;
+  mesh: TriangleMesh | null;
 }
 
 export interface ExportResult {
@@ -47,6 +38,6 @@ export interface ExportResult {
 export interface ModelingBackend {
   create(prompt: string): Promise<BackendResult>;
   modify(prompt: string): Promise<BackendResult>;
-  render(): MeshDescriptor | null;
+  render(): TriangleMesh | null;
   export(format: ExportFormat): Promise<ExportResult>;
 }

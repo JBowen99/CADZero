@@ -2,9 +2,9 @@ import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-
-const AI_API_URL =
-  import.meta.env.VITE_AI_API_URL ?? "http://localhost:8787/api/chat";
+import { chatApiUrl } from "~/lib/api";
+import { useModelStore } from "~/store/useModelStore";
+import { useChatModeStore } from "~/store/useChatModeStore";
 
 type ChatContextValue = ReturnType<typeof useChat>;
 
@@ -12,7 +12,19 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: AI_API_URL }),
+    () =>
+      new DefaultChatTransport({
+        api: chatApiUrl,
+        prepareSendMessagesRequest: ({ body, messages }) => ({
+          body: {
+            ...body,
+            messages,
+            mode: useChatModeStore.getState().mode,
+            cadCode: useModelStore.getState().cadCode,
+            language: useModelStore.getState().language,
+          },
+        }),
+      }),
     [],
   );
   const chat = useChat({ transport });

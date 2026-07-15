@@ -6,6 +6,21 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
 import { ChatMessage } from "./ChatMessage";
 import { describeChatError, isChatBusy, useChatContext } from "~/lib/ai-chat";
+import { useChatModeStore } from "~/store/useChatModeStore";
+import { cn } from "~/lib/utils";
+import type { ChatMode } from "~/types";
+
+const MODES: { value: ChatMode; label: string }[] = [
+  { value: "plan", label: "Plan" },
+  { value: "chat", label: "Chat" },
+  { value: "build", label: "Build" },
+];
+
+const PLACEHOLDER: Record<ChatMode, string> = {
+  plan: "Describe what you want to build — the assistant will plan it…",
+  chat: "Ask about the model or OpenSCAD…",
+  build: "Describe a part or a change to build…",
+};
 
 const EXAMPLE_PROMPTS = [
   "Create a 100 x 60 x 8 mm mounting plate with four M5 clearance holes.",
@@ -48,6 +63,8 @@ export function ChatPanel() {
     useChatContext();
   const busy = isChatBusy(status);
   const errorInfo = describeChatError(error);
+  const mode = useChatModeStore((s) => s.mode);
+  const setMode = useChatModeStore((s) => s.setMode);
 
   const [value, setValue] = useState("");
   const [dismissed, setDismissed] = useState(false);
@@ -76,10 +93,28 @@ export function ChatPanel() {
   };
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <MessageSquare className="size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Chat</span>
+    <div className="flex h-full w-full min-w-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Mode
+        </span>
+        <div className="flex h-7 items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => setMode(m.value)}
+              className={cn(
+                "h-6 rounded px-2.5 text-xs font-medium transition-colors",
+                mode === m.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {messages.length === 0 ? (
@@ -144,7 +179,7 @@ export function ChatPanel() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Describe a part or a change…"
+            placeholder={PLACEHOLDER[mode]}
             disabled={busy}
             className="min-h-[72px] max-h-[200px] resize-none pr-10 text-sm"
           />
@@ -168,9 +203,9 @@ export function ChatPanel() {
           </Button>
         </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          ⌘/Ctrl + Enter to send
+          ⌘/Ctrl + Enter to send · {mode} mode
         </p>
       </div>
-    </aside>
+    </div>
   );
 }

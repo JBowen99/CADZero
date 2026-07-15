@@ -1,0 +1,87 @@
+import { useEffect, useRef } from "react";
+import type { UIMessage } from "ai";
+import type { BackendName, TriangleMesh } from "~/types";
+import { useChatContext } from "~/lib/ai-chat";
+import { meshUrl } from "~/lib/api";
+import { useModelStore } from "~/store/useModelStore";
+
+interface BuildInput {
+  code?: string;
+  language?: BackendName;
+  message?: string;
+}
+
+interface BuildOutput {
+  success?: boolean;
+  meshId?: string;
+  message?: string;
+  stderr?: string;
+  triangleCount?: number;
+}
+
+interface BuildPart {
+  type: `tool-${string}`;
+  toolCallId?: string;
+  state?: string;
+  input?: BuildInput;
+  output?: BuildOutput;
+}
+
+function collectBuilds(parts: UIMessage["parts"] | undefined): BuildPart[] {
+  if (!parts) return [];
+  return (parts as unknown[]).filter(
+    (p): p is BuildPart =>
+      typeof p === "object" &&
+      p !== null &&
+      typeof (p as BuildPart).type === "string" &&
+      (p as BuildPart).type === "tool-update_model",
+  );
+}
+
+async function fetchMesh(id: string): Promise<TriangleMesh> {
+  const res = await fetch(meshUrl(id));
+  if (!res.ok) throw new Error(`mesh fetch failed: ${res.status}`);
+  return (await res.json()) as TriangleMesh;
+}
+
+export function useModelSync() {
+  const { messages } = useChatContext();
+  const syncedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let lastResolved: BuildPart | null = null;
+    let building = false;
+
+    for (const message of messages) {
+      for (const part of collectBuilds(message.parts)) {
+        if (part.state === "output-available" || part.state === "output-error") {
+          lastResolved = part;
+          building = false;
+        } else if (
+          part.state === "input-streaming" ||
+          part.state === "input-available"
+        ) {
+          building = true;
+        }
+      }
+    }
+
+    useModelStore.getState().setBuilding(building);
+
+    if (!lastResolved) return;
+    const tcid = lastResolved.toolCallId;
+    if (!tcid || tcid === syncedRef.current) return;
+    syncedRef.current = tcid;
+
+    const { output, input } = lastResolved;
+    if (output?.success && output.meshId && input?.code) {
+      void fetchMesh(output.meshId).then((mesh) => {
+        useModelStore.getState().setModel(
+          mesh,
+          input.code!,
+          input.language ?? "openscad",
+        );
+      });
+    }
+  }, [messages]);
+}

@@ -2,9 +2,10 @@ import { useEffect } from "react";
 import type { Route } from "./+types/home";
 import { Toolbar } from "~/components/Toolbar";
 import { Viewport } from "~/components/Viewport";
-import { ChatPanel } from "~/components/ChatPanel";
+import { SidePanel } from "~/components/SidePanel";
 import { StatusBar } from "~/components/StatusBar";
 import { ChatProvider } from "~/lib/ai-chat";
+import { useModelSync } from "~/lib/useModelSync";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -20,31 +21,40 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export default function Home() {
+function Workspace() {
   const connect = useConnectionStore((s) => s.connect);
+  useModelSync();
 
   useEffect(() => {
     void connect();
   }, [connect]);
 
   return (
+    <>
+      <Toolbar />
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="min-h-0 flex-1"
+      >
+        <ResizablePanel defaultSize="70%" minSize="30%">
+          <Viewport />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize="30%" minSize="20%" maxSize="55%">
+          <SidePanel />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+      <StatusBar />
+    </>
+  );
+}
+
+export default function Home() {
+  return (
     <ChatProvider>
       <TooltipProvider delayDuration={200}>
         <div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-          <Toolbar />
-          <ResizablePanelGroup
-            orientation="horizontal"
-            className="min-h-0 flex-1"
-          >
-            <ResizablePanel defaultSize="70%" minSize="30%">
-              <Viewport />
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize="30%" minSize="20%" maxSize="55%">
-              <ChatPanel />
-            </ResizablePanel>
-          </ResizablePanelGroup>
-          <StatusBar />
+          <Workspace />
         </div>
       </TooltipProvider>
     </ChatProvider>

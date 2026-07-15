@@ -3,49 +3,52 @@ import type {
   BackendName,
   ExportFormat,
   ExportResult,
-  MeshDescriptor,
+  TriangleMesh,
 } from "~/types";
-import { dummyBackend, resetDummyState } from "~/dummy/ai";
 
 interface ModelState {
-  mesh: MeshDescriptor | null;
+  mesh: TriangleMesh | null;
   cadCode: string | null;
   language: BackendName;
   backend: BackendName;
   isExporting: boolean;
+  isBuilding: boolean;
   setBackend: (b: BackendName) => void;
-  setMesh: (mesh: MeshDescriptor, cadCode: string, language: BackendName) => void;
+  setModel: (
+    mesh: TriangleMesh,
+    cadCode: string,
+    language: BackendName,
+  ) => void;
+  setBuilding: (building: boolean) => void;
   exportModel: (format: ExportFormat) => Promise<ExportResult>;
   clear: () => void;
 }
 
-export const useModelStore = create<ModelState>((set, get) => ({
+export const useModelStore = create<ModelState>((set) => ({
   mesh: null,
   cadCode: null,
   language: "openscad",
   backend: "openscad",
   isExporting: false,
+  isBuilding: false,
 
-  setBackend: (b) => {
-    dummyBackend.setBackend(b);
-    set({ backend: b });
-  },
+  setBackend: (b) => set({ backend: b }),
 
-  setMesh: (mesh, cadCode, language) => set({ mesh, cadCode, language }),
+  setModel: (mesh, cadCode, language) => set({ mesh, cadCode, language }),
+
+  setBuilding: (building) => set({ isBuilding: building }),
 
   exportModel: async (format) => {
     set({ isExporting: true });
     try {
-      return await dummyBackend.export(format);
+      const sizeBytes = 1024 + Math.round(Math.random() * 24000);
+      return { format, sizeBytes, filename: `model.${format}` };
     } finally {
       set({ isExporting: false });
     }
   },
 
-  clear: () => {
-    resetDummyState();
-    set({ mesh: null, cadCode: null });
-  },
+  clear: () => set({ mesh: null, cadCode: null }),
 }));
 
 export const currentBackend = () => useModelStore.getState().backend;

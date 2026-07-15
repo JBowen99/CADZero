@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import {
   Bounds,
@@ -7,42 +7,30 @@ import {
   Grid,
   OrbitControls,
 } from "@react-three/drei";
-import type { Hole, MeshDescriptor } from "~/types";
+import * as THREE from "three";
+import type { TriangleMesh } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
 
-function MeshGeometry({ mesh }: { mesh: MeshDescriptor }) {
-  const [w, d, h] = mesh.size ?? [50, 50, 50];
+function TriangleMeshGeometry({ mesh }: { mesh: TriangleMesh }) {
+  const geometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(mesh.positions, 3),
+    );
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    return geo;
+  }, [mesh.positions]);
 
   return (
-    <group>
-      <mesh castShadow receiveShadow>
-        {mesh.kind === "sphere" && <sphereGeometry args={[mesh.radius ?? 25, 64, 64]} />}
-        {mesh.kind === "cylinder" && (
-          <cylinderGeometry args={[mesh.radius ?? 20, mesh.radius ?? 20, mesh.height ?? 60, 64]} />
-        )}
-        {(mesh.kind === "box" || mesh.kind === "plate") && (
-          <boxGeometry args={[w, d, h]} />
-        )}
-        <meshStandardMaterial color={mesh.color} metalness={0.1} roughness={0.5} />
-      </mesh>
-
-      {mesh.holes?.map((hole, i) => (
-        <HoleGeometry key={i} hole={hole} depth={h + 4} />
-      ))}
-    </group>
-  );
-}
-
-function HoleGeometry({ hole, depth }: { hole: Hole; depth: number }) {
-  return (
-    <mesh position={[hole.position[0], hole.position[1], 0]}>
-      <cylinderGeometry args={[hole.radius, hole.radius, depth, 32]} />
-      <meshStandardMaterial color="#0a0a0a" metalness={0.2} roughness={0.7} />
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial color="#a5b4fc" metalness={0.1} roughness={0.5} />
     </mesh>
   );
 }
 
-function Scene({ mesh }: { mesh: MeshDescriptor | null }) {
+function Scene({ mesh }: { mesh: TriangleMesh | null }) {
   return (
     <>
       <ambientLight intensity={0.6} />
@@ -57,7 +45,7 @@ function Scene({ mesh }: { mesh: MeshDescriptor | null }) {
       <Suspense fallback={null}>
         {mesh ? (
           <Bounds fit clip observe margin={1.2}>
-            <MeshGeometry mesh={mesh} />
+            <TriangleMeshGeometry mesh={mesh} />
           </Bounds>
         ) : null}
       </Suspense>
