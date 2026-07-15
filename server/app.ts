@@ -16,6 +16,7 @@ import type { BackendName } from "./backend-types";
 import { renderScad, checkOpenScad } from "./backends/openscad";
 import { parseStl } from "./renderer/stl";
 import { storeMesh, getMesh } from "./mesh-store";
+import { listAvailableModels, resolveModelId } from "./models";
 
 const openrouter = createOpenRouter({ apiKey: config.openrouterApiKey });
 
@@ -33,6 +34,11 @@ app.use(
 app.get("/api/health", (c) =>
   c.json({ ok: true, model: config.openrouterModel }),
 );
+
+app.get("/api/models", async (c) => {
+  const models = await listAvailableModels();
+  return c.json({ models });
+});
 
 app.get("/api/capabilities", async (c) => {
   const openscad = await checkOpenScad();
@@ -85,20 +91,22 @@ const updateModelTool = tool({
 interface ChatRequestBody {
   messages: UIMessage[];
   mode?: ChatMode;
+  model?: string;
   cadCode?: string | null;
   language?: BackendName;
 }
 
 app.post("/api/chat", async (c) => {
-  const { messages, mode, cadCode, language } =
+  const { messages, mode, model, cadCode, language } =
     await c.req.json<ChatRequestBody>();
 
   const safeMode: ChatMode =
     mode === "plan" || mode === "build" ? mode : "chat";
   const safeLanguage: BackendName = language ?? "openscad";
+  const modelId = await resolveModelId(model);
 
   const result = streamText({
-    model: openrouter.chat(config.openrouterModel),
+    model: openrouter.chat(modelId),
     instructions: buildInstructions(safeMode, cadCode ?? null, safeLanguage),
     messages: await convertToModelMessages(messages),
     tools: { update_model: updateModelTool },

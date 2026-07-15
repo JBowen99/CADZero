@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import {
   Bounds,
@@ -10,27 +10,9 @@ import {
 import * as THREE from "three";
 import type { TriangleMesh } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
+import { buildMesh } from "~/lib/mesh-worker-client";
 
-function TriangleMeshGeometry({ mesh }: { mesh: TriangleMesh }) {
-  const geometry = useMemo(() => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(mesh.positions, 3),
-    );
-    geo.computeVertexNormals();
-    geo.computeBoundingSphere();
-    return geo;
-  }, [mesh.positions]);
-
-  return (
-    <mesh geometry={geometry} castShadow receiveShadow>
-      <meshStandardMaterial color="#a5b4fc" metalness={0.1} roughness={0.5} />
-    </mesh>
-  );
-}
-
-function Scene({ mesh }: { mesh: TriangleMesh | null }) {
+function Scene({ geometry }: { geometry: THREE.BufferGeometry | null }) {
   return (
     <>
       <ambientLight intensity={0.6} />
@@ -43,11 +25,13 @@ function Scene({ mesh }: { mesh: TriangleMesh | null }) {
       <directionalLight position={[-60, 40, -80]} intensity={0.3} />
 
       <Suspense fallback={null}>
-        {mesh ? (
+        {geometry && (
           <Bounds fit clip observe margin={1.2}>
-            <TriangleMeshGeometry mesh={mesh} />
+            <mesh geometry={geometry} castShadow receiveShadow>
+              <meshStandardMaterial color="#a5b4fc" metalness={0.1} roughness={0.5} />
+            </mesh>
           </Bounds>
-        ) : null}
+        )}
       </Suspense>
 
       <Grid
@@ -96,6 +80,48 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
+  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const geometryRef = useRef<THREE.BufferGeometry | null>(null);
+
+  useEffect(() => {
+    if (!mesh) {
+      geometryRef.current?.dispose();
+      geometryRef.current = null;
+      setGeometry(null);
+      setProcessing(false);
+      return;
+    }
+
+    let cancelled = false;
+    setProcessing(true);
+    const positions = new Float32Array(mesh.positions);
+
+    buildMesh(positions)
+      .then(({ positions: p, normals, center, radius }) => {
+        if (cancelled) return;
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+        geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+        geo.boundingSphere = new THREE.Sphere(
+          new THREE.Vector3(center[0], center[1], center[2]),
+          radius,
+        );
+        geometryRef.current?.dispose();
+        geometryRef.current = geo;
+        setGeometry(geo);
+        setProcessing(false);
+      })
+      .catch(() => {
+        if (!cancelled) setProcessing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mesh]);
+
+  useEffect(() => () => geometryRef.current?.dispose(), []);
 
   return (
     <div className="relative h-full w-full bg-muted/30">
@@ -106,10 +132,15 @@ export function Viewport() {
         gl={{ antialias: true, preserveDrawingBuffer: true }}
       >
         <color attach="background" args={["var(--color-background)"]} />
-        <Scene mesh={mesh} />
+        <Scene geometry={geometry} />
       </Canvas>
 
       {!mesh && <EmptyHint />}
+      {processing && (
+        <div className="pointer-events-none absolute left-3 top-3 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+          Processing mesh…
+        </div>
+      )}
     </div>
   );
 }

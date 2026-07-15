@@ -4,9 +4,18 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { ChatMessage } from "./ChatMessage";
 import { describeChatError, isChatBusy, useChatContext } from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
+import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
+import { modelsUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
 import type { ChatMode } from "~/types";
 
@@ -65,10 +74,35 @@ export function ChatPanel() {
   const errorInfo = describeChatError(error);
   const mode = useChatModeStore((s) => s.mode);
   const setMode = useChatModeStore((s) => s.setMode);
+  const model = useSettingsStore((s) => s.model);
+  const setModel = useSettingsStore((s) => s.setModel);
 
   const [value, setValue] = useState("");
   const [dismissed, setDismissed] = useState(false);
+  const [models, setModels] = useState<AvailableModel[]>([]);
+  const [modelsError, setModelsError] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(modelsUrl)
+      .then((r) => r.json())
+      .then((data: { models?: AvailableModel[] }) => {
+        if (cancelled) return;
+        const list = data.models ?? [];
+        setModels(list);
+        setModelsError(list.length === 0);
+        if (!useSettingsStore.getState().model && list[0]) {
+          setModel(list[0].id);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setModelsError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setModel]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -94,29 +128,6 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Mode
-        </span>
-        <div className="flex h-7 items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
-          {MODES.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => setMode(m.value)}
-              className={cn(
-                "h-6 rounded px-2.5 text-xs font-medium transition-colors",
-                mode === m.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {messages.length === 0 ? (
         <div className="flex-1 overflow-hidden">
           <EmptyChat onPick={(p) => sendMessage({ text: p })} />
@@ -180,7 +191,6 @@ export function ChatPanel() {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={PLACEHOLDER[mode]}
-            disabled={busy}
             className="min-h-[72px] max-h-[200px] resize-none pr-10 text-sm"
           />
           <Button
@@ -202,8 +212,43 @@ export function ChatPanel() {
             )}
           </Button>
         </div>
+        <div className="mt-2 flex items-center gap-2">
+          <Select value={mode} onValueChange={(v) => setMode(v as ChatMode)}>
+            <SelectTrigger size="sm" className="h-7 gap-1 px-2 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODES.map((m) => (
+                <SelectItem key={m.value} value={m.value} className="text-xs">
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={model ?? undefined}
+            onValueChange={setModel}
+            disabled={models.length === 0}
+          >
+            <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 gap-1 px-2 text-xs">
+              <SelectValue
+                placeholder={
+                  modelsError ? "Models unavailable" : "Loading models…"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((m) => (
+                <SelectItem key={m.id} value={m.id} className="text-xs">
+                  <span className="truncate">{m.name}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          ⌘/Ctrl + Enter to send · {mode} mode
+          ⌘/Ctrl + Enter to send
         </p>
       </div>
     </div>

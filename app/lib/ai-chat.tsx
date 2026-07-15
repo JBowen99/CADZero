@@ -5,6 +5,7 @@ import { DefaultChatTransport } from "ai";
 import { chatApiUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
 import { useChatModeStore } from "~/store/useChatModeStore";
+import { useSettingsStore } from "~/store/useSettingsStore";
 
 type ChatContextValue = ReturnType<typeof useChat>;
 
@@ -20,6 +21,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             ...body,
             messages,
             mode: useChatModeStore.getState().mode,
+            model: useSettingsStore.getState().model,
             cadCode: useModelStore.getState().cadCode,
             language: useModelStore.getState().language,
           },

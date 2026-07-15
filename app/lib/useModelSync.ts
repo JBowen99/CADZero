@@ -49,20 +49,25 @@ export function useModelSync() {
   const syncedRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const last = messages[messages.length - 1];
+    const parts = collectBuilds(last?.parts);
+    if (parts.length === 0) {
+      useModelStore.getState().setBuilding(false);
+      return;
+    }
+
     let lastResolved: BuildPart | null = null;
     let building = false;
 
-    for (const message of messages) {
-      for (const part of collectBuilds(message.parts)) {
-        if (part.state === "output-available" || part.state === "output-error") {
-          lastResolved = part;
-          building = false;
-        } else if (
-          part.state === "input-streaming" ||
-          part.state === "input-available"
-        ) {
-          building = true;
-        }
+    for (const part of parts) {
+      if (part.state === "output-available" || part.state === "output-error") {
+        lastResolved = part;
+        building = false;
+      } else if (
+        part.state === "input-streaming" ||
+        part.state === "input-available"
+      ) {
+        building = true;
       }
     }
 

@@ -6,3 +6,4 @@ const API_BASE = AI_API_URL.replace(/\/chat\/?$/, "");
 export const chatApiUrl = AI_API_URL;
 export const meshUrl = (id: string) => `${API_BASE}/mesh/${id}`;
 export const capabilitiesUrl = `${API_BASE}/capabilities`;
+export const modelsUrl = `${API_BASE}/models`;

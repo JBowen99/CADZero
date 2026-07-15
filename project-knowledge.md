@@ -92,8 +92,8 @@ app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx
-│   ├── Viewport.tsx         # R3F Canvas; renders TriangleMesh via BufferGeometry (computeVertexNormals)
-│   ├── ChatPanel.tsx        # message list + composer + Plan/Chat/Build mode toggle; driven by useChatContext
+│   ├── Viewport.tsx         # R3F Canvas; geometry built off-main-thread via mesh-worker
+│   ├── ChatPanel.tsx        # message list + composer; mode + model Selects live below the input
 │   ├── ChatMessage.tsx      # renders text parts + update_model tool parts (CodeBlock + render status/stderr)
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage + CodeView)
 │   ├── CodeView.tsx         # right-panel Code tab: shows current cadCode read-only
@@ -101,14 +101,17 @@ app/
 │   └── StatusBar.tsx        # connection, backend, OpenSCAD capability, triangle count, build state
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn)
-│   ├── ai-chat.tsx          # ChatProvider + useChatContext; transport injects mode/cadCode/language per request
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / capabilitiesUrl (derived from VITE_AI_API_URL)
-│   └── useModelSync.ts      # watches chat messages; on finished update_model fetches /api/mesh/:id -> setModel
+│   ├── ai-chat.tsx          # ChatProvider + useChatContext; transport injects mode/model/cadCode/language per request
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / capabilitiesUrl / modelsUrl (derived from VITE_AI_API_URL)
+│   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
+│   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
+│   └── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches /api/mesh/:id -> setModel
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
 ├── store/
 │   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, setModel
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
+│   ├── useSettingsStore.ts  # selected OpenRouter model id (default null -> first /api/models entry)
 │   └── useConnectionStore.ts
 ├── types/
 │   └── index.ts             # ChatMode, TriangleMesh, BackendName, ModelingBackend, etc.
@@ -122,9 +125,11 @@ app/
 
 ```
 server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool), GET /api/mesh/:id, /api/capabilities, /api/health
+├── app.ts                    # Hono app: POST /api/chat (update_model tool), GET /api/models, /api/mesh/:id, /api/capabilities, /api/health
 ├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
 ├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH; assertConfig()
+├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId()
+├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
 ├── backend-types.ts          # BackendName = "openscad" | "build123d"
 ├── system-prompt.ts          # BASE_PROMPT + buildInstructions(mode, cadCode, language)
 ├── backends/openscad.ts      # renderScad(code) spawns `openscad -o out.stl`; checkOpenScad()
@@ -172,12 +177,26 @@ exact same SPA as the web app — Electron just loads it.
   `useModelStore.setModel(mesh, code, language)`. Plan/Chat modes instruct the
   model NOT to call the tool, so no geometry changes.
 - **Modes are user-controlled, not model-decided.** `useChatModeStore`
-  (`plan|chat|build`) is set by a segmented control in `ChatPanel`. The selected
-  mode + the current `cadCode`/`language` are injected into the request body by
+  (`plan|chat|build`) is set by a `Select` in the `ChatPanel` footer (next to
+  the model picker — there is no longer a top mode bar). The selected mode +
+  model + current `cadCode`/`language` are injected into the request body by
   the transport's `prepareSendMessagesRequest` (reads live store state, so no
   stale closures) and turned into the model `instructions` via
   `buildInstructions(mode, cadCode, language)` server-side. The model never
   switches modes on its own.
+- **Model picker is server-driven.** `server/models.config.json` is the
+  whitelist; `listAvailableModels()` (`server/models.ts`) intersects it with
+  OpenRouter's live `GET /api/v1/models` (5-min in-process cache, fails open —
+  returns the raw config ids if OpenRouter is unreachable) and returns
+  `{id, name}`. `GET /api/models` is what the client polls on mount. The
+  selected id lives in `useSettingsStore`; `ChatPanel` auto-selects the first
+  entry if none is set. `POST /api/chat` accepts `model` in the body and
+  resolves it through `resolveModelId()` (unknown id → config default).
+  `OPENROUTER_MODEL` env is now only a last-resort fallback.
+- **Keep the chat composer interactive while busy.** The textarea is NOT
+  disabled while the assistant streams or OpenSCAD renders — `submit()` guards
+  against sending mid-busy, so the user can compose the next prompt. Don't
+  re-add `disabled={busy}` on the Textarea.
 - **Tool part shape (client).** `useChat` assembles each tool call into one
   `UIMessage` part with `type: "tool-update_model"`, `state` in
   `input-streaming|input-available|output-available|output-error`, plus
@@ -200,13 +219,14 @@ Standalone **Hono** app streaming chat via the **Vercel AI SDK v7** through
 (that's why the Hono `app` in `app.ts` is kept separate from the Node `serve()`
 bootstrap in `index.ts`).
 
-- **Endpoints:** `POST /api/chat` (AI SDK UI-message stream) and
-  `GET /api/health`. CORS is locked to `ALLOWED_ORIGIN` (default
-  `http://localhost:5173`).
+- **Endpoints:** `POST /api/chat` (AI SDK UI-message stream), `GET /api/models`
+  (whitelisted, OpenRouter-validated model picker source), `GET /api/health`.
+  CORS is locked to `ALLOWED_ORIGIN` (default `http://localhost:5173`).
 - **OpenRouter wiring:** `@openrouter/ai-sdk-provider`'s `createOpenRouter()`
-  + `openrouter.chat(MODEL)`. Model + key come from env. Swap models by editing
-  `OPENROUTER_MODEL` (e.g. `anthropic/claude-3.5-sonnet`, `openai/gpt-4o`,
-  `meta-llama/...`).
+  + `openrouter.chat(MODEL)`. The model id per request comes from
+  `resolveModelId(req.body.model)` — NOT a fixed env. Edit the model menu by
+  editing `server/models.config.json` (ids must match OpenRouter's exactly or
+  they get filtered out).
 - **Server response:** `streamText(...)` → `toUIMessageStream({ stream })` →
   `createUIMessageStreamResponse({ stream })`. We override `toUIMessageStream`'s
   `onError` to **forward the real error text** (the default masks it to
@@ -407,6 +427,24 @@ electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
 `sudo dnf install libxcrypt-compat` (Fedora) / `sudo apt install libcrypt1`
 (Debian).
 
+### 15. Web Workers under Vite + RR + Electron (and the typing trick)
+We use the standard Vite pattern: `new Worker(new URL("./mesh-worker.ts",
+import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
+(`build/client/assets/mesh-worker-*.js`) and RR's SPA build + Electron's
+`app://` loader both serve it unchanged — no special config.
+- **Don't `import three` inside a worker.** Three's main entry pulls in
+  DOM-touching classes (`Texture`, etc.). We hand-rolled the normals + Ritter
+  bounding-sphere loops instead (pure math, ~40 LOC). Worth it.
+- **tsconfig has only `DOM`/`ES2022` libs — no `WebWorker`.** So `self` inside
+  the worker is typed as `Window`, and `self.postMessage(msg, [transfer])`
+  doesn't match (Window's signature requires `targetOrigin`). Work around it
+  with a narrow local cast at the top of the worker file:
+  `const ctx = self as unknown as { onmessage: …; postMessage(msg, transfer: Transferable[]): void }`.
+- **Always transfer `Float32Array.buffer`, never the typed array.** And once
+  transferred, the source is neutered — only build throwaway buffers for the
+  transfer. `mesh-worker-client.ts` correlates requests by an incrementing id
+  so a single shared worker can serve concurrent `buildMesh()` calls safely.
+
 ---
 
 ## R3F viewport specifics
@@ -418,6 +456,17 @@ electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
   `Bounds` (auto-fit/center on new mesh).
 - Colors passed to three should be CSS values; we pass `var(--color-background)`
   for the scene background and hex strings for meshes.
+- **Geometry is built off the main thread.** `Viewport.tsx`'s `useEffect`
+  converts `mesh.positions` to a `Float32Array`, transfers it to the singleton
+  Web Worker (`mesh-worker.ts`) which computes per-vertex normals (same
+  algorithm as three's non-indexed `computeVertexNormals`) + a Ritter bounding
+  sphere, and returns both as transferable `Float32Array`s. The main thread
+  only attaches them to a `BufferGeometry`. While a new mesh prepares, the
+  previous mesh stays visible (no flicker) and a "Processing mesh…" badge
+  shows. Old geometries are `.dispose()`d via a ref so GPU memory doesn't leak.
+  Lifting this out of the R3F tree (the worker call lives in the outer
+  component, not inside `<Canvas>`) is what keeps the textarea/camera
+  responsive during large renders.
 - Empty state (no mesh) shows a dashed hint. (The old "Generating model…"
   overlay was removed once chat stopped driving the viewport; the viewport no
   longer reacts to chat status.)
@@ -430,9 +479,11 @@ electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
 | ------------------------------ | --------------------------------------------------------- |
 | AI chat (`server/`, `useChat`) | **LIVE** — streams from OpenRouter via Vercel AI SDK      |
 | `update_model` tool → OpenSCAD → mesh → viewport | **LIVE** — requires `openscad` binary installed |
-| Plan / Chat / Build modes      | **LIVE** — user-selectable; drive system prompt + tool use |
+| Plan / Chat / Build modes      | **LIVE** — user-selectable via footer Select; drive system prompt + tool use |
+| Model picker                   | **LIVE** — `GET /api/models` (config ∩ live OpenRouter) → footer Select, stored in `useSettingsStore` |
+| Off-main-thread geometry       | **LIVE** — Web Worker builds normals + bounding sphere (no UI hitch on large meshes) |
 | Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code]` tabs in `SidePanel` (Code read-only) |
-| Mesh transport                 | **LIVE** — ephemeral `server/mesh-store.ts` + `GET /api/mesh/:id` |
+| Mesh transport                 | **LIVE** — ephemeral `server/mesh-store.ts` + `GET /api/mesh/:id` (still JSON `number[]`; binary is a follow-up) |
 | OpenSCAD capability check      | **LIVE** — `GET /api/capabilities`, shown in `StatusBar`  |
 | `app/dummy/`                   | **DELETED** — retired now that real OpenSCAD is wired     |
 | `app/services/websocket.ts`    | **Mocked** — `DummyWebSocketClient`; becomes real WS for CAD progress |
