@@ -7,10 +7,8 @@ import {
   Grid,
   OrbitControls,
 } from "@react-three/drei";
-import { Loader2 } from "lucide-react";
 import type { Hole, MeshDescriptor } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
-import { useChatStore } from "~/store/useChatStore";
 
 function MeshGeometry({ mesh }: { mesh: MeshDescriptor }) {
   const [w, d, h] = mesh.size ?? [50, 50, 50];
@@ -96,17 +94,6 @@ function Scene({ mesh }: { mesh: MeshDescriptor | null }) {
   );
 }
 
-function LoadingOverlay() {
-  return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[1px]">
-      <div className="flex items-center gap-2 rounded-md bg-background/90 px-3 py-2 text-sm shadow-md">
-        <Loader2 className="size-4 animate-spin" />
-        Generating model…
-      </div>
-    </div>
-  );
-}
-
 function EmptyHint() {
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -121,7 +108,6 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
-  const isGenerating = useChatStore((s) => s.isGenerating);
 
   return (
     <div className="relative h-full w-full bg-muted/30">
@@ -135,8 +121,7 @@ export function Viewport() {
         <Scene mesh={mesh} />
       </Canvas>
 
-      {!mesh && !isGenerating && <EmptyHint />}
-      {isGenerating && <LoadingOverlay />}
+      {!mesh && <EmptyHint />}
     </div>
   );
 }

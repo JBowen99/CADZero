@@ -1,6 +1,6 @@
 import { Activity, Loader2 } from "lucide-react";
 import type { ConnectionStatus } from "~/types";
-import { useChatStore } from "~/store/useChatStore";
+import { isChatBusy, useChatContext } from "~/lib/ai-chat";
 import { useConnectionStore } from "~/store/useConnectionStore";
 import { useModelStore } from "~/store/useModelStore";
 import { cn } from "~/lib/utils";
@@ -14,10 +14,9 @@ const statusColor: Record<ConnectionStatus, string> = {
 export function StatusBar() {
   const status = useConnectionStore((s) => s.status);
   const backend = useModelStore((s) => s.backend);
-  const isGenerating = useChatStore((s) => s.isGenerating);
-  const lastError = useChatStore((s) => s.lastError);
+  const chatStatus = useChatContext().status;
+  const busy = isChatBusy(chatStatus);
   const mesh = useModelStore((s) => s.mesh);
-  const lastActionAt = useChatStore((s) => s.lastActionAt);
 
   return (
     <footer className="flex h-7 items-center gap-4 border-t bg-background px-3 text-[11px] text-muted-foreground">
@@ -45,21 +44,15 @@ export function StatusBar() {
         </span>
       )}
 
-      {lastError && (
-        <span className="text-destructive">{lastError}</span>
-      )}
-
       <span className="ml-auto flex items-center gap-2">
-        {isGenerating && (
+        {busy && (
           <span className="flex items-center gap-1.5">
             <Loader2 className="size-3 animate-spin" />
-            Generating…
+            Responding…
           </span>
         )}
-        {lastActionAt && !isGenerating && (
-          <span>
-            Last action {new Date(lastActionAt).toLocaleTimeString()}
-          </span>
+        {chatStatus === "error" && (
+          <span className="text-destructive">Chat error</span>
         )}
       </span>
     </footer>

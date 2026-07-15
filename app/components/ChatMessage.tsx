@@ -1,12 +1,10 @@
 import { Bot, User } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "~/types";
+import type { UIMessage } from "ai";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
-import { Badge } from "~/components/ui/badge";
-import { CodeBlock } from "./CodeBlock";
 import { cn } from "~/lib/utils";
 
 interface ChatMessageProps {
-  message: ChatMessageType;
+  message: UIMessage;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
@@ -44,22 +42,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
               : "bg-muted text-foreground",
           )}
         >
-          {message.content}
+          {message.parts.map((part, i) =>
+            part.type === "text" ? (
+              <span key={i}>{part.text}</span>
+            ) : null,
+          )}
         </div>
-
-        {message.cadCode && (
-          <div className="w-full space-y-1.5">
-            {message.language && (
-              <Badge variant="secondary" className="uppercase">
-                {message.language}
-              </Badge>
-            )}
-            <CodeBlock
-              code={message.cadCode}
-              language={message.language ?? "code"}
-            />
-          </div>
-        )}
       </div>
     </div>
   );

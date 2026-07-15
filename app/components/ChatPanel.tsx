@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Loader2, MessageSquare } from "lucide-react";
+import { AlertTriangle, ArrowUp, Loader2, MessageSquare, RotateCcw, Square, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
 import { ChatMessage } from "./ChatMessage";
-import { useChatStore } from "~/store/useChatStore";
+import { describeChatError, isChatBusy, useChatContext } from "~/lib/ai-chat";
 
 const EXAMPLE_PROMPTS = [
   "Create a 100 x 60 x 8 mm mounting plate with four M5 clearance holes.",
@@ -23,7 +23,7 @@ function EmptyChat({ onPick }: { onPick: (prompt: string) => void }) {
       <div className="space-y-1">
         <h3 className="text-sm font-medium">Describe a part to begin</h3>
         <p className="text-xs text-muted-foreground">
-          The assistant will generate parametric CAD code and render it.
+          The assistant will help you model your part through conversation.
         </p>
       </div>
       <div className="flex w-full max-w-xs flex-col gap-1.5">
@@ -44,20 +44,27 @@ function EmptyChat({ onPick }: { onPick: (prompt: string) => void }) {
 }
 
 export function ChatPanel() {
-  const messages = useChatStore((s) => s.messages);
-  const isGenerating = useChatStore((s) => s.isGenerating);
-  const sendPrompt = useChatStore((s) => s.sendPrompt);
+  const { messages, sendMessage, status, stop, error, regenerate } =
+    useChatContext();
+  const busy = isChatBusy(status);
+  const errorInfo = describeChatError(error);
 
   const [value, setValue] = useState("");
+  const [dismissed, setDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages, isGenerating]);
+  }, [messages, status]);
+
+  useEffect(() => {
+    setDismissed(false);
+  }, [error]);
 
   const submit = () => {
-    if (!value.trim() || isGenerating) return;
-    sendPrompt(value);
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    sendMessage({ text: trimmed });
     setValue("");
   };
 
@@ -77,7 +84,7 @@ export function ChatPanel() {
 
       {messages.length === 0 ? (
         <div className="flex-1 overflow-hidden">
-          <EmptyChat onPick={(p) => sendPrompt(p)} />
+          <EmptyChat onPick={(p) => sendMessage({ text: p })} />
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1 overflow-hidden">
@@ -88,7 +95,7 @@ export function ChatPanel() {
                 {i < messages.length - 1 && <Separator />}
               </div>
             ))}
-            {isGenerating && (
+            {status === "submitted" && (
               <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" />
                 Assistant is thinking…
@@ -101,6 +108,36 @@ export function ChatPanel() {
 
       <Separator />
 
+      {error && !dismissed && (
+        <div className="flex items-start gap-2 border-l-2 border-destructive/60 bg-destructive/10 px-3 py-2">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-destructive">{errorInfo.title}</p>
+            <p className="text-destructive/80">{errorInfo.hint}</p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1 px-2 text-xs"
+            onClick={() => regenerate()}
+          >
+            <RotateCcw className="size-3" />
+            Retry
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-destructive"
+            onClick={() => setDismissed(true)}
+            aria-label="Dismiss error"
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      )}
+
       <div className="shrink-0 p-3">
         <div className="relative">
           <Textarea
@@ -108,19 +145,23 @@ export function ChatPanel() {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Describe a part or a change…"
-            disabled={isGenerating}
+            disabled={busy}
             className="min-h-[72px] max-h-[200px] resize-none pr-10 text-sm"
           />
           <Button
             type="button"
             size="icon-sm"
             className="absolute bottom-2 right-2"
-            onClick={submit}
-            disabled={!value.trim() || isGenerating}
-            aria-label="Send prompt"
+            onClick={busy ? stop : submit}
+            disabled={!busy && !value.trim()}
+            aria-label={busy ? "Stop generating" : "Send prompt"}
           >
-            {isGenerating ? (
-              <Loader2 className="size-4 animate-spin" />
+            {busy ? (
+              status === "streaming" ? (
+                <Square className="size-3.5" />
+              ) : (
+                <Loader2 className="size-4 animate-spin" />
+              )
             ) : (
               <ArrowUp className="size-4" />
             )}
