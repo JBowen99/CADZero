@@ -1,12 +1,22 @@
 {
   "name": "chatcad",
+  "version": "0.1.0",
+  "description": "AI-native parametric CAD application",
+  "author": "ChatCAD",
+  "homepage": "https://example.com",
   "private": true,
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "build:electron-main": "vite build --config electron/vite.config.ts",
+    "build:desktop": "react-router build && pnpm build:electron-main",
+    "dev:desktop": "concurrently -k -n web,main,app \"react-router dev\" \"vite build --config electron/vite.config.ts --watch\" \"wait-on tcp:5173 dist-electron/main.cjs && electron .\"",
+    "package": "pnpm build:desktop && electron-builder",
+    "package:linux": "pnpm build:desktop && electron-builder --linux"
   },
   "dependencies": {
     "@react-router/node": "8.0.0",
@@ -36,8 +46,32 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.185.1",
+    "concurrently": "^10.0.3",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.chatcad.app",
+    "productName": "ChatCAD",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "build/client/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Graphics",
+      "maintainer": "ChatCAD"
+    }
   }
 }

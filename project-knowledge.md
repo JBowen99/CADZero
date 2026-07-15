@@ -12,7 +12,8 @@ An AI-native parametric CAD application. Users describe parts in natural
 language; the app generates parametric CAD code (OpenSCAD / Build123D), executes
 a modeling backend, and renders the resulting mesh in a Three.js viewport.
 
-**Current state:** MVP frontend only. There is no backend yet — all AI/CAD
+**Current state:** MVP frontend, now wrapped in an **Electron desktop shell**
+(`pnpm dev:desktop` runs it natively). There is still no backend — all AI/CAD
 behavior is mocked by dummy functions. See `AI CAD MVP Project Specification.md`
 for the full vision, goals, and roadmap.
 
@@ -48,6 +49,8 @@ intentionally deferred — a storage layer will be added later.
 | State            | Zustand                                                 |
 | Package manager  | **pnpm** (pnpm-lock.yaml)                               |
 | Build tool       | Vite 8                                                  |
+| Desktop shell    | **Electron 43** (renderer = the React Router app)       |
+| Packaging        | electron-builder (Linux: AppImage + deb)               |
 
 **Path alias:** `~/*` → `./app/*`
 
@@ -57,9 +60,12 @@ intentionally deferred — a storage layer will be added later.
 
 ```bash
 pnpm install          # install deps
-pnpm dev              # dev server on http://localhost:5173
+pnpm dev              # web dev server on http://localhost:5173
+pnpm dev:desktop      # native Electron app + HMR (loads the dev server)
 pnpm run typecheck    # react-router typegen && tsc  (ALWAYS run before committing)
 pnpm run build        # production build (SPA)
+pnpm build:desktop    # build renderer + electron main (no packaging)
+pnpm package:linux    # build + electron-builder -> release/*.AppImage / *.deb
 ```
 
 ---
@@ -94,6 +100,17 @@ app/
 ├── app.css                  # Tailwind import + shadcn design tokens
 └── root.tsx                 # ThemeProvider + Toaster + Layout
 ```
+
+```
+electron/                    # Electron main process (Node side, NOT the React app)
+├── main.ts                  # BrowserWindow, app:// protocol, dev-vs-packaged loading
+├── preload.ts               # contextBridge stub (contextIsolation-safe) for future IPC
+└── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS)
+```
+
+`dist-electron/` and `release/` are build outputs (gitignored). The renderer
+build (`build/client/`) is still produced by `react-router build` and is the
+exact same SPA as the web app — Electron just loads it.
 
 ---
 
@@ -131,7 +148,43 @@ app/
 
 ---
 
-## GOTCHAS (read these — they cost real debugging time)
+## Electron / desktop shell
+
+- **React Router owns the renderer; Electron owns only main + preload.** Do NOT
+  bring in `electron-vite` to take over the renderer build — RR 8 Framework Mode
+  has its own opinions and they conflict. The desktop `build`/`dev` reuse
+  `react-router build`/`react-router dev` unchanged; only the Node side is new.
+- **Two run modes** (`electron/main.ts` decides via `app.isPackaged`):
+  - Dev (`!app.isPackaged`): loads `http://localhost:5173` — full Vite HMR.
+  - Packaged: registers a privileged **`app://`** scheme and serves
+    `build/client/*` via `protocol.handle`, then loads `app://bundle/index.html`.
+- **Why `app://` and not `file://` / `loadFile`:** RR's SPA build emits
+  **absolute** asset paths (`/assets/entry.client-…js`, and inline
+  `import("/assets/…")`). Under `file://` those resolve to the filesystem root
+  and break. The `app://` origin makes `/assets/…` resolve correctly with zero
+  changes to Vite `base` or the RR config. (We never touch `vite.config.ts`.)
+- **main + preload are bundled to CommonJS `.cjs`.** `package.json` has
+  `"type": "module"`, which would make `.js` outputs ESM — but a **sandboxed
+  preload must be CJS** (`sandbox: true`). Emitting `.cjs` sidesteps both: Node
+  treats `.cjs` as CJS regardless of package type. The Vite config externals
+  `electron` + all Node builtins and targets `node22`.
+- **Secure window defaults — keep them:** `contextIsolation: true`,
+  `nodeIntegration: false`, `sandbox: true`. The renderer is pure browser code.
+- **Resolve paths with `app.getAppPath()`**, NOT `import.meta.url` / `__dirname`.
+  In the bundled CJS output `import.meta.url` is unreliable, and `__dirname`
+  isn't typed in ESM source. `app.getAppPath()` works uniformly in dev (project
+  root) and packaged (`app.asar`), and Electron patches `fs` to read inside asar
+  transparently — so the `app://` handler's `readFile`/`stat`/`existsSync` work
+  on the packed archive without extra setup.
+- **`webPreferences.preload`** points at `dist-electron/preload.cjs`. We include
+  `dist-electron/**` and `build/client/**` in electron-builder `files`, so both
+  ship inside the asar.
+- **`main` field** in package.json is `dist-electron/main.cjs` — that's what
+  `electron .` and the packaged app execute.
+
+---
+
+
 
 ### 1. React Router `+types/*` errors are NOT real errors
 Editors show `Cannot find module './+types/home'` for route modules. These types
@@ -180,6 +233,46 @@ every `typecheck`/`build`. Harmless; ignore it.
 ### 8. The Three.js bundle is large (~1 MB / ~300 KB gzip)
 The viewport chunk dominates the build. Acceptable for an MVP. When it matters,
 lazy-load the viewport with `React.lazy` + a route-level split.
+
+### 9. NEVER load the packaged app with `file://` / `loadFile`
+React Router's SPA build writes absolute paths (`/assets/...`) into
+`index.html`, including inline dynamic imports. `file://` resolves those against
+the filesystem root → blank window / failed module loads. Use the `app://`
+custom protocol (see "Electron / desktop shell"). Setting Vite `base: './'` is a
+tempting shortcut but doesn't reliably rewrite RR's inline `import("...")`
+strings — the protocol is the robust fix.
+
+### 10. Electron main/preload MUST ship as CommonJS (`.cjs`)
+Two reasons collide: (a) `package.json` is `"type": "module"`, so a `.js` output
+is treated as ESM and a sandboxed preload can't be ESM; (b) `sandbox: true`
+requires a CJS preload. Bundling to `.cjs` solves both. Don't switch the preload
+to ESM unless you also turn sandboxing off (we don't want to).
+
+### 11. Don't use `import.meta.url` / `__dirname` in electron main
+The CJS bundle doesn't preserve `import.meta.url`, and `__dirname` isn't
+declared in ESM source (TS error). Use `app.getAppPath()` for all path roots.
+
+### 12. pnpm v11 blocks scripts on unapproved build deps
+After adding Electron, pnpm wrote `allowBuilds: { electron-winstaller: "set
+this to true or false" }` into `pnpm-workspace.yaml` and then **failed every
+`pnpm <script>`** with `ERR_PNPM_IGNORED_BUILDS` until resolved. We set
+`electron-winstaller: false` (it's a Windows-only packaging dep we don't need).
+If a script mysteriously fails right after installing something, check this file
+and approve/decline explicitly.
+
+### 13. electron-builder requires package metadata
+It errors out without `version`, and the **`.deb`** target (via the bundled
+`fpm`/Ruby) additionally requires `homepage`. We set `version`/`description`/
+`author`/`homepage` in package.json. (`homepage` is a placeholder
+`https://example.com` — replace with the real repo/site before a public
+release.)
+
+### 14. `.deb` build needs `libcrypt.so.1` on the host
+electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
+`cannot open shared object file: libcrypt.so.1` on minimal/Fedora hosts.
+**AppImage builds fine without it.** For `.deb`, install the lib once:
+`sudo dnf install libxcrypt-compat` (Fedora) / `sudo apt install libcrypt1`
+(Debian).
 
 ---
 

@@ -5,3 +5,7 @@
 # React Router
 /.react-router/
 /build/
+
+# Electron
+/dist-electron/
+/release/
