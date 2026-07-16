@@ -124,3 +124,21 @@
     @apply bg-background text-foreground overflow-hidden;
   }
 }
+
+@layer utilities {
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-drag button,
+  .app-drag input,
+  .app-drag select,
+  .app-drag textarea,
+  .app-drag a,
+  .app-drag [role="combobox"],
+  .app-drag [data-no-drag] {
+    -webkit-app-region: no-drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}

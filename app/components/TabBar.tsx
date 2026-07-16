@@ -4,6 +4,7 @@ import { cn } from "~/lib/utils";
 import { isChatBusy, useChatStatus } from "~/lib/ai-chat";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
+import { WorkspaceTree } from "~/components/WorkspaceTree";
 
 export function TabBar() {
   const openDocs = useDocumentsStore((s) => s.openDocs);
@@ -18,6 +19,8 @@ export function TabBar() {
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b bg-background px-2">
+      <WorkspaceTree />
+      <div className="mr-1 h-5 w-px shrink-0 bg-border" />
       {openDocs.map((doc) => {
         const active = doc.clientId === activeClientId;
         const label =

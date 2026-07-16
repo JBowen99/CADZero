@@ -8,7 +8,7 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Box, Compass, Disc, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, Compass, Disc, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -45,6 +45,12 @@ const VIEW_MODES: { value: ViewMode; label: string; icon: typeof Box }[] = [
 
 // Front-right-top viewing direction (matches the default camera at [140,110,160]).
 const FRONT_RIGHT_TOP_DIR = new THREE.Vector3(140, 110, 160).normalize();
+
+// World-space axis colors (match the RubiksGizmo face-center cubies).
+const AXIS_X = "#ef4444"; // red  (+X right)
+const AXIS_Y = "#22c55e"; // green (+Y up)
+const AXIS_Z = "#3b82f6"; // blue (+Z toward viewer)
+const AXIS_LENGTH = 500;
 
 function FitController({
   geometry,
@@ -93,6 +99,50 @@ function FitController({
   return null;
 }
 
+function AxisLine({
+  dx,
+  dy,
+  dz,
+  color,
+  length,
+}: {
+  dx: number;
+  dy: number;
+  dz: number;
+  color: string;
+  length: number;
+}) {
+  const geometry = useMemo(() => {
+    const positions = new Float32Array([
+      -dx * length,
+      -dy * length,
+      -dz * length,
+      dx * length,
+      dy * length,
+      dz * length,
+    ]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return g;
+  }, [dx, dy, dz, length]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <lineSegments geometry={geometry}>
+      <lineBasicMaterial color={color} toneMapped={false} />
+    </lineSegments>
+  );
+}
+
+function Axes({ length = AXIS_LENGTH }: { length?: number }) {
+  return (
+    <>
+      <AxisLine dx={1} dy={0} dz={0} color={AXIS_X} length={length} />
+      <AxisLine dx={0} dy={1} dz={0} color={AXIS_Y} length={length} />
+      <AxisLine dx={0} dy={0} dz={1} color={AXIS_Z} length={length} />
+    </>
+  );
+}
+
 function Scene({
   geometry,
   fitRef,
@@ -102,6 +152,7 @@ function Scene({
   viewMode,
   showGrid,
   showGizmo,
+  showAxes,
 }: {
   geometry: THREE.BufferGeometry | null;
   fitRef: FitRef;
@@ -111,6 +162,7 @@ function Scene({
   viewMode: ViewMode;
   showGrid: boolean;
   showGizmo: boolean;
+  showAxes: boolean;
 }) {
   const edgesRef = useRef<THREE.EdgesGeometry | null>(null);
   const edges = useMemo(() => {
@@ -168,6 +220,8 @@ function Scene({
           )}
         </Suspense>
       </Bounds>
+
+      {showAxes && <Axes />}
 
       {showGrid && (
         <Grid
@@ -250,6 +304,7 @@ export function Viewport() {
   const [viewMode, setViewMode] = useState<ViewMode>("shaded");
   const [showGrid, setShowGrid] = useState(true);
   const [showGizmo, setShowGizmo] = useState(true);
+  const [showAxes, setShowAxes] = useState(true);
 
   const { resolvedTheme } = useTheme();
   const [gridColors, setGridColors] = useState<GridColors | null>(null);
@@ -331,6 +386,7 @@ export function Viewport() {
           viewMode={viewMode}
           showGrid={showGrid}
           showGizmo={showGizmo}
+          showAxes={showAxes}
         />
       </Canvas>
 
@@ -419,6 +475,29 @@ export function Viewport() {
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {showGrid ? "Hide reference grid" : "Show reference grid"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "h-7 w-7",
+                  showAxes
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setShowAxes((v) => !v)}
+                aria-label="Toggle reference axes"
+                aria-pressed={showAxes}
+              >
+                <Axis3d className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {showAxes ? "Hide reference axes" : "Show reference axes"}
             </TooltipContent>
           </Tooltip>
           <Tooltip>

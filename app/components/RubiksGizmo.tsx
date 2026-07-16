@@ -15,11 +15,16 @@ import {
 
 const CUBIE_FACE = "#d4d4d8"; // outer (plain) cubie faces
 const BODY = "#18181b"; // inner cubie faces + gap backing (the dark frame)
-const TEXT = "#18181b"; // label glyph
 const CUBIE = 0.94; // cubie edge length (spacing is 1.0 → visible dark gaps)
 const CORE = 2.9; // backing box so inter-cubie gaps read as a dark frame
 const GROUP_SCALE = 20; // overall footprint (~matches drei GizmoViewcube)
 const HOVER_AMOUNT = 0.3;
+
+// Axis colors for the six face-center cubies (match the viewport axes).
+const AXIS_X = "#ef4444"; // red
+const AXIS_Y = "#22c55e"; // green
+const AXIS_Z = "#3b82f6"; // blue
+const LABEL_TEXT = "#ffffff";
 
 const white = new Color("#ffffff");
 const tmp = new Color();
@@ -45,25 +50,26 @@ function isOuter(gx: number, gy: number, gz: number, faceIndex: number): boolean
   }
 }
 
-type FaceCenter = { faceIndex: number; label: string };
+type FaceCenter = { faceIndex: number; label: string; color: string };
 
 function faceCenter(
   gx: number,
   gy: number,
   gz: number,
 ): FaceCenter | null {
-  if (gx === 1 && gy === 0 && gz === 0) return { faceIndex: 0, label: "X" };
-  if (gx === -1 && gy === 0 && gz === 0) return { faceIndex: 1, label: "-X" };
-  if (gy === 1 && gx === 0 && gz === 0) return { faceIndex: 2, label: "Y" };
-  if (gy === -1 && gx === 0 && gz === 0) return { faceIndex: 3, label: "-Y" };
-  if (gz === 1 && gx === 0 && gy === 0) return { faceIndex: 4, label: "Z" };
-  if (gz === -1 && gx === 0 && gy === 0) return { faceIndex: 5, label: "-Z" };
+  if (gx === 1 && gy === 0 && gz === 0) return { faceIndex: 0, label: "X", color: AXIS_X };
+  if (gx === -1 && gy === 0 && gz === 0) return { faceIndex: 1, label: "-X", color: AXIS_X };
+  if (gy === 1 && gx === 0 && gz === 0) return { faceIndex: 2, label: "Y", color: AXIS_Y };
+  if (gy === -1 && gx === 0 && gz === 0) return { faceIndex: 3, label: "-Y", color: AXIS_Y };
+  if (gz === 1 && gx === 0 && gy === 0) return { faceIndex: 4, label: "Z", color: AXIS_Z };
+  if (gz === -1 && gx === 0 && gy === 0) return { faceIndex: 5, label: "-Z", color: AXIS_Z };
   return null;
 }
 
 const labelCache = new Map<string, CanvasTexture>();
-function getLabelTexture(label: string): CanvasTexture {
-  const cached = labelCache.get(label);
+function getLabelTexture(label: string, bg: string): CanvasTexture {
+  const key = `${label}|${bg}`;
+  const cached = labelCache.get(key);
   if (cached) return cached;
   const size = 128;
   const canvas = document.createElement("canvas");
@@ -71,9 +77,9 @@ function getLabelTexture(label: string): CanvasTexture {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    ctx.fillStyle = CUBIE_FACE;
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = TEXT;
+    ctx.fillStyle = LABEL_TEXT;
     ctx.font = `bold ${label.length > 1 ? 64 : 84}px Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -83,13 +89,13 @@ function getLabelTexture(label: string): CanvasTexture {
   tex.colorSpace = SRGBColorSpace;
   tex.anisotropy = 4;
   tex.needsUpdate = true;
-  labelCache.set(label, tex);
+  labelCache.set(key, tex);
   return tex;
 }
 
 type FaceMat =
   | { kind: "color"; color: string }
-  | { kind: "label"; label: string };
+  | { kind: "label"; label: string; color: string };
 
 function buildFaceMaterials(
   gx: number,
@@ -101,7 +107,7 @@ function buildFaceMaterials(
   const hoverColor = CUBIE_FACE_HOVER;
   return [0, 1, 2, 3, 4, 5].map((i) => {
     if (center && center.faceIndex === i) {
-      return { kind: "label" as const, label: center.label };
+      return { kind: "label" as const, label: center.label, color: center.color };
     }
     const outer = isOuter(gx, gy, gz, i);
     return {
@@ -158,7 +164,7 @@ function Cubie({
           <meshBasicMaterial
             key={i}
             attach={`material-${i}`}
-            map={getLabelTexture(m.label)}
+            map={getLabelTexture(m.label, m.color)}
             toneMapped={false}
           />
         ) : (

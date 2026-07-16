@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, shell } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, shell } from "electron";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -135,8 +135,9 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    frame: false,
     backgroundColor: "#0a0a0a",
-    title: "ChatCAD",
+    title: "CADZero",
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -163,10 +164,27 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  mainWindow.on("maximize", () => {
+    mainWindow?.webContents.send("window:maximize-change", true);
+  });
+  mainWindow.on("unmaximize", () => {
+    mainWindow?.webContents.send("window:maximize-change", false);
+  });
 }
 
 app.whenReady().then(() => {
   protocol.handle("app", handleAppProtocol);
+
+  ipcMain.on("window:minimize", () => mainWindow?.minimize());
+  ipcMain.on("window:toggle-maximize", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+  ipcMain.on("window:close", () => mainWindow?.close());
+  ipcMain.handle("window:is-maximized", () => mainWindow?.isMaximized() ?? false);
+
   createWindow();
 
   app.on("activate", () => {

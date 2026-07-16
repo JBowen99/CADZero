@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Bookmark,
+  ArrowUpFromLine,
   Boxes,
-  Download,
-  Eraser,
   FilePlus2,
   FolderOpen,
   Moon,
@@ -14,7 +12,6 @@ import {
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
 import { Input } from "~/components/ui/input";
 import {
   Select,
@@ -37,12 +34,12 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import type { BackendName, ExportFormat } from "~/types";
-import { useChatActions, useChatHasMessages } from "~/lib/ai-chat";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 import { PartsBrowser } from "~/components/PartsBrowser";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
+import { WindowControls } from "~/components/WindowControls";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
 
@@ -119,27 +116,12 @@ export function Toolbar() {
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
   const mesh = useModelStore((s) => s.mesh);
-  const setMessages = useChatActions().setMessages;
-  const hasMessages = useChatHasMessages();
   const newTab = useDocumentsStore((s) => s.newTab);
-  const checkpoint = useDocumentsStore((s) => s.checkpoint);
   const saveActiveNow = useDocumentsStore((s) => s.saveActiveNow);
-  const activeMeta = useDocumentsStore((s) => s.activeMeta);
   const root = useWorkspaceStore((s) => s.root);
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-
-  const clear = () => setMessages([]);
-
-  const handleCheckpoint = async () => {
-    const label = window
-      .prompt("Checkpoint name (labels the current version):")
-      ?.trim();
-    if (!label) return;
-    await checkpoint(label);
-    toast.success(`Checkpointed “${label}”`);
-  };
 
   const handleBackendChange = (value: string) => {
     setBackend(value as BackendName);
@@ -171,16 +153,22 @@ export function Toolbar() {
   };
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
-      <div className="flex items-center gap-2 font-semibold">
-        <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Boxes className="size-4" />
-        </span>
-        <span className="tracking-tight">AI CAD</span>
-        <Badge variant="secondary" className="hidden sm:inline">
-          MVP
-        </Badge>
-      </div>
+    <header className="app-drag flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
+      <span className="font-semibold tracking-tight">CADZero</span>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+          >
+            {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Toggle theme</TooltipContent>
+      </Tooltip>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -207,40 +195,49 @@ export function Toolbar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <PartNameControl />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleSave()}
-            aria-label="Save"
-          >
-            <Save className="size-4" />
-            <span className="hidden sm:inline">Save</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Save (name + write to disk)</TooltipContent>
-      </Tooltip>
-
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => void handleCheckpoint()}
-            disabled={!activeMeta?.headRevId}
-            aria-label="Checkpoint current version"
+            onClick={() => void handleSave()}
+            aria-label="Save"
           >
-            <Bookmark className="size-4" />
+            <Save className="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Checkpoint current version</TooltipContent>
+        <TooltipContent>Save (name + write to disk)</TooltipContent>
       </Tooltip>
 
-      <div className="ml-4 hidden items-center gap-2 text-xs text-muted-foreground md:flex">
-        <span>Backend</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={isExporting}
+            aria-label="Export model"
+          >
+            <ArrowUpFromLine className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Export model</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {EXPORT_FORMATS.map((format) => (
+            <DropdownMenuItem
+              key={format}
+              onSelect={() => handleExport(format)}
+              className="capitalize"
+            >
+              .{format}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <PartNameControl />
+
+      <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
         <Select value={backend} onValueChange={handleBackendChange}>
           <SelectTrigger className="h-7 w-[150px] text-xs" size="sm">
             <SelectValue />
@@ -252,58 +249,7 @@ export function Toolbar() {
         </Select>
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-            >
-              {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Toggle theme</TooltipContent>
-        </Tooltip>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={isExporting}>
-              <Download className="size-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Export model</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {EXPORT_FORMATS.map((format) => (
-              <DropdownMenuItem
-                key={format}
-                onSelect={() => handleExport(format)}
-                className="capitalize"
-              >
-                .{format}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={clear}
-              disabled={!hasMessages}
-              aria-label="Clear conversation"
-            >
-              <Eraser className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Clear conversation</TooltipContent>
-        </Tooltip>
-      </div>
+      <WindowControls />
 
       <PartsBrowser open={browserOpen} onOpenChange={setBrowserOpen} />
       <WorkspaceSetup
