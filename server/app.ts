@@ -60,7 +60,7 @@ app.use(
   cors({
     origin: config.allowedOrigin,
     allowHeaders: ["Content-Type"],
-    allowMethods: ["POST", "GET", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
 

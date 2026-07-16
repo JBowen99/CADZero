@@ -473,7 +473,6 @@ export function upsertMessageBatch(
   const ids = msgs.map((m) => m.msgId);
   const upsert = db.transaction(() => {
     if (ids.length === 0) {
-      db.prepare("DELETE FROM messages").run();
       return;
     }
     const placeholders = ids.map(() => "?").join(",");

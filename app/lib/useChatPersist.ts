@@ -27,6 +27,10 @@ export function useChatPersist() {
       }
       return;
     }
+    if (msgs.length === 0) {
+      useDocumentsStore.getState().setSaveState(clientId, "saved");
+      return;
+    }
     let payload;
     try {
       payload = serializeConversation(msgs);
@@ -40,11 +44,14 @@ export function useChatPersist() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: payload }),
     })
-      .then(() => {
-        useDocumentsStore.getState().setSaveState(clientId, "saved");
+      .then((res) => {
+        useDocumentsStore.getState().setSaveState(
+          clientId,
+          res.ok ? "saved" : "unsaved",
+        );
       })
       .catch(() => {
-        useDocumentsStore.getState().setSaveState(clientId, "saved");
+        useDocumentsStore.getState().setSaveState(clientId, "unsaved");
       });
   };
 
