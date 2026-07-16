@@ -15,12 +15,13 @@ a modeling backend, and renders the resulting mesh in a Three.js viewport.
 **Current state:** MVP frontend wrapped in an **Electron desktop shell**, plus a
 **TypeScript AI-chat backend** (`server/`) that streams chat from the Vercel AI
 SDK over OpenRouter. The AI conversation is real (streaming + context), and
-**OpenSCAD geometry generation is now wired end-to-end**: in Build mode the
-model calls an `update_model` tool whose server-side `execute` runs the
-`openscad` CLI and streams a parsed triangle mesh back to the viewport. Plan /
-Chat / Build modes are user-selectable. Build123D, persistence, and a code
-editor are still deferred. See `AI CAD MVP Project Specification.md` for the
-full vision.
+**OpenSCAD geometry generation is wired end-to-end**: in Build mode the model
+calls an `update_model` tool whose server-side `execute` runs the `openscad` CLI
+and streams a parsed triangle mesh back to the viewport. Plan / Chat / Build
+modes are user-selectable. **Persistence is live** (Phases 0–4): parts are
+`.cadz` SQLite files in a workspace, with PDM revision history, multi-part tabs,
+and per-part chat persistence. Build123D and a code editor are still deferred.
+See `AI CAD MVP Project Specification.md` for the full vision.
 
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
 > deliberately moved to **TypeScript + HTTP streaming** (Vercel AI SDK). The CAD
@@ -64,6 +65,7 @@ intentionally deferred — a storage layer will be added later.
 | AI chat backend  | **Hono** (`server/`) + **Vercel AI SDK v7** + OpenRouter |
 | Tool schemas     | **zod 4** (added for AI SDK `tool()` input schemas)        |
 | CAD kernel       | **OpenSCAD** (external CLI binary, spawned by Node)        |
+| Persistence      | **better-sqlite3** — one `.cadz` SQLite file per part (`server/storage/`) |
 
 **Path alias:** `~/*` → `./app/*`
 
@@ -97,8 +99,13 @@ app/
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr)
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage + CodeView)
 │   ├── CodeView.tsx         # right-panel Code tab: shows current cadCode read-only
-│   ├── SidePanel.tsx        # right panel container with [Chat | Code] tab switch
-│   └── StatusBar.tsx        # connection, backend, OpenSCAD capability, triangle count, build state
+│   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch
+│   ├── TabBar.tsx           # multi-part tabs (full-width under Toolbar): switch/close/new; switch+close-active disabled while busy
+│   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt
+│   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
+│   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
+│   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
+│   └── StatusBar.tsx        # connection, backend, OpenSCAD capability, triangle count, active part, workspace root, build state
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language
@@ -106,18 +113,23 @@ app/
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
-│   └── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches binary /api/mesh/:id -> setModel
+│   ├── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches binary /api/mesh/:id -> setModel + patchActiveDoc
+│   ├── useTabChatSync.ts    # multi-part: on activeClientId change, snapshots useChat.messages -> outgoing doc.chat, restores incoming (lazy-loads from disk if !chatLoaded)
+│   ├── useChatPersist.ts    # debounced (~600ms) disk persist of active doc's chat; flush-on-switch + beforeunload; PUT /api/parts/:id/messages
+│   └── chat-persist.ts      # serialize/deserialize UIMessage <-> StoredMessage (parts_json = full message JSON; extracts producedRevId from tool parts)
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
 ├── store/
-│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, setModel
+│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, setModel, setCode, clear
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
-│   ├── useSettingsStore.ts  # selected OpenRouter model id (default null -> first /api/models entry)
+│   ├── useSettingsStore.ts  # model + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
+│   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace
+│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId; denormalized activeId/activeMeta/previewingRevId; openPart/newTab/closeTab/setActive/patchActiveDoc/snapshotChat/preview/restore/checkpoint (FIFO cap 8)
 │   └── useConnectionStore.ts
 ├── types/
 │   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, ModelingBackend, etc.
 ├── routes/
-│   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync
+│   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync + useTabChatSync; boots (settings+workspace), reopens ALL last-open tabs (first active, rest background), syncs lastOpenDocIds from openDocs
 │   └── +types/*             # AUTO-GENERATED by react-router typegen (gitignored)
 ├── vite-env.d.ts            # augments ImportMetaEnv with VITE_AI_API_URL
 ├── app.css                  # Tailwind import + shadcn design tokens
@@ -136,14 +148,21 @@ server/                       # AI chat backend (TypeScript, runs standalone now
 ├── backends/openscad.ts      # renderScad(code) spawns `openscad -o out.stl`; checkOpenScad()
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
 ├── mesh-store.ts             # ephemeral Map<meshId, TriangleMesh> (LRU, capped 64)
+├── storage/                  # PERSISTENCE — .cadz sqlite part files + workspace + settings (Phase 0+)
+│   ├── schema.ts             # SCHEMA_SQL + SCHEMA_VERSION (meta kv, revisions, messages, meshes)
+│   ├── db.ts                 # openPartDb(): LRU cache (16) of better-sqlite3 conns; journal_mode=DELETE (self-contained .cadz); migrate()
+│   ├── types.ts              # PartType, PartMeta, RevisionRecord, MessageRecord, StoredMesh, sheet-metal/assembly shapes
+│   ├── parts.ts              # part CRUD + createRevision (auto-advances head, optional cached mesh), listRevisions, getMeshBlob, upsertMessage
+│   ├── config.ts             # getWorkspaceRoot() (WORKSPACE_DIR env ?? app config), atomic config.json + <workspace>/.chatcad/settings.json
+│   └── workspace.ts          # requireWorkspaceRoot(), setWorkspaceRoot() (mkdir -p), listWorkspaceParts()
 ├── .env                      # gitignored — your real OpenRouter key goes here
 └── .env.example              # committed template
 ```
 
 ```
 electron/                    # Electron main process (Node side, NOT the React app)
-├── main.ts                  # BrowserWindow, app:// protocol, dev-vs-packaged loading
-├── preload.ts               # contextBridge stub (contextIsolation-safe) for future IPC
+├── main.ts                  # BrowserWindow, app:// protocol (serves renderer + PROXIES /api/* to the backend), dev-vs-packaged loading
+├── preload.ts               # contextBridge stub (contextIsolation-safe) exposes { isElectron }
 └── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS)
 ```
 
@@ -170,7 +189,8 @@ exact same SPA as the web app — Electron just loads it.
   `chat` object in one context** — it re-renders the ENTIRE app tree on every
   token (that was the whole-app freeze bug). `ChatMessage` is `React.memo`'d so
   prior messages skip re-render. Message history (context) is held client-side by
-  `useChat` and re-sent each turn; there is no server-side store yet.
+  `useChat` and re-sent each turn; it is ALSO persisted per-part to the `.cadz`
+  (Phase 4) and lazy-loaded on tab activate (see `chat-persist.ts`).
 - **CAD generation is real (OpenSCAD).** In Build mode the model calls the
   `update_model` tool (`server/app.ts`) with `{ code, language, message }`.
   The server's `execute` writes the code to a temp `.scad`, runs
@@ -229,6 +249,51 @@ exact same SPA as the web app — Electron just loads it.
   return `{success:false, stderr:"spawn openscad ENOENT"}` (shown in the chat
   card + status bar "OpenSCAD: not found"); Plan/Chat still work. Install on
   Fedora with `sudo dnf install openscad`.
+- **Documents are persistent (Phase 1).** A *part* is a `.cadz` SQLite file in
+  the workspace. The renderer never touches sqlite/fs — it only talks HTTP
+  (`/api/parts/*`, `/api/workspace`, `/api/settings`). **Builds auto-persist:**
+  `makeUpdateModelTool({workspaceRoot, partId})` is constructed *per request*
+  (not a module const) so `execute` closes over the active part; on a successful
+  render it `createRevision`s the code + cached mesh into the part's `.cadz`,
+  auto-creating an "Untitled" part on the very first build (`partId` null →
+  `createPart`). The tool output now carries `partId` + `revId`. The client
+  transport injects `partId: useDocumentsStore.getState().activeId` into the chat
+  body (same getState-at-send pattern as mode/model/cadCode). `useModelSync`
+  reads the new `partId`/`revId`, calls `adoptBuiltPart` + `refresh` +
+  `pushOpenDoc`. **The ephemeral `/api/mesh/:id` is unchanged** — it still serves
+  the *live* build; the revision's cached blob (`GET /api/parts/:id/meshes/:blobId`)
+  serves the *reload/open* path. `useModelStore` is the active-doc projection
+  (Viewport/CodeView read it unchanged); `useDocumentsStore` owns the partId +
+  coordinates. **Chat is persisted per-part** (Phase 4: `/api/parts/:id/messages`,
+  lazy-loaded on tab activate); switching tabs swaps the conversation via
+  `useTabChatSync`, and the current code is also injected as AI context each turn.
+- **Settings hydrate before the model picker auto-selects.** `useSettingsStore`
+  `load()`s from `/api/settings` on boot (model + lastOpenDocIds). `ChatPanel`'s
+  auto-select-first-model effect is **gated on `settingsLoaded`** so it doesn't
+  clobber a persisted model in a race. Settings persist via a 400 ms debounced
+  PUT; the file lives at `<workspace>/.chatcad/settings.json`. `lastOpenDocIds[0]`
+  is reopened on launch (guarded by a `useRef` so it runs once, not on every
+  `parts` refresh).
+- **Saving is automatic but now visible.** Every build → a revision, chat →
+  debounced disk write, settings → disk. There's no traditional "Save to a
+  location" — parts live as `.cadz` files in the single workspace. What's
+  exposed: per-doc `saveState` (`saved` | `saving` | `unsaved`) shown as a
+  TabBar marker (● = unsaved/blank, spinner = saving) and a StatusBar pill;
+  a **Save button** (Toolbar) + **⌘/Ctrl+S** that force-flushes chat
+  (`saveSignal` → `useChatPersist` flush). A blank tab (no `partId`) is
+  `unsaved`; the **first Save of an unnamed part opens `NamePrompt`** →
+  `resolveName` either PATCHes an existing (built) part or POST-creates a
+  chat-only part. Naming: a blank tab carries a `pendingName` (editable via
+  `PartNameControl` even before build); `adoptBuiltPart` applies it on first
+  build. **Rename refreshes the workspace list** (`rename` calls
+  `useWorkspaceStore.refresh()`) so PartsBrowser matches — that was the
+  "rename doesn't save" bug.
+- **`saveState` must always be redeemable.** `useChatPersist` only flips a doc
+  to `"saving"` when it can actually persist (`partId && chatLoaded`); it must
+  never set `"saving"` for a doc whose chat isn't loaded yet, because `persist`
+  early-returns when `!chatLoaded` (to avoid writing stale/empty chat) — which
+  would strand the spinner on `"saving"` forever (the original "Save just
+  spins" bug, hit on reload when the active part's chat loads as empty).
 - **No comments in code** unless explicitly requested (house style).
 
 ---
@@ -262,7 +327,79 @@ bootstrap in `index.ts`).
 - **Env:** loaded via Node 22's native `--env-file-if-exists=server/.env` (no
   dotenv dep). `server/.env` is gitignored; copy from `server/.env.example`.
 - **Context** is maintained client-side by `useChat` (full message history is
-  POSTed each turn). No DB / server-side history yet.
+  POSTed each turn). Chat history is ALSO persisted per-part to the `.cadz`
+  `messages` table (Phase 4) and restored on open — see `server/storage/`.
+
+### Storage / persistence layer (`server/storage/`)
+
+A **document-based persistence layer** for parts, revisions, chat, and settings.
+**All live** (Phases 0–4): the `.cadz` SQLite container, workspace, settings,
+part CRUD + build auto-revision, PDM revision history (checkpoint/restore),
+multi-part tabs, and per-part chat persistence (linear). Chat forking UI is the
+only remaining (deferred) piece.
+
+Design decisions (locked during planning — see the plan in chat history):
+- **One part = one `.cadz` file**, and a `.cadz` is a **SQLite database**
+  (`better-sqlite3`, v12 — note: types ship separately as `@types/better-sqlite3`).
+  Chosen for real PDM-style revision history + chat-DAG + cached meshes in one
+  queryable, transactional, atomic file. Trade-off: not git-diff-able (git the
+  workspace folder for human-readable history; the `.cadz` is a binary asset).
+- **Workspace = a single folder root** the app manages (and the user may
+  `git init`). All parts live as `<id>.cadz` inside it. The root is resolved by
+  `getWorkspaceRoot()`: **`WORKSPACE_DIR` env ?? `config.json`'s `workspaceRoot`**.
+  The env var is a dev/automation override and is **not** persisted — set the
+  root via `POST /api/workspace` to persist it.
+- **App config** lives in `~/.chatcad/config.json` (override dir with `CADZ_HOME`
+  env). It currently holds only `workspaceRoot`. Electron will later point
+  `CADZ_HOME` at `app.getPath('userData')`.
+- **UI settings** live in `<workspaceRoot>/.chatcad/settings.json` (so they
+  travel with the project) — model, panelSplit, viewMode, grid/gizmo toggles,
+  lastOpenDocIds. `GET/PUT /api/settings`. Read is lenient (returns `{}` if no
+  workspace); write requires a workspace.
+- **Schema** (`server/storage/schema.ts`): a `meta` key-value table +
+  `revisions` (code PDM tree, `parent_rev_id` + `mesh_blob_id` + `label`) +
+  `messages` (chat DAG, `parent_msg_id` + `produced_rev_id` → links a chat turn
+  to the revision it created) + `meshes` (Float32 `positions` BLOB). All
+  `CREATE ... IF NOT EXISTS`; `meta.schema_version` gates migrations. **The
+  migrator is a real versioned ladder now** (`addColumnIfMissing` via
+  `PRAGMA table_info`): v1→v2 added `revisions.label`. Bump `SCHEMA_VERSION`
+  and add a guarded step for future column changes — existing `.cadz` files are
+  upgraded on first open.
+- **Revisions are a DAG; HEAD is a pointer.** `createRevision` always advances
+  `meta.head_rev_id`. `restoreRevision(revId)` creates a *child* of an older rev
+  (`source:"fork"`, **references** the source's `mesh_blob_id` — no copy) and
+  makes it HEAD (unified forward-fork: old work stays in history). `checkpoint`
+  tags the current HEAD revision's `label` (no new node). `createRevision` input
+  takes either `mesh` (store new blob) or `meshBlobId` (reference existing).
+- **Connection cache**: `openPartDb()` keeps an LRU of 16 open better-sqlite3
+  handles keyed by absolute path. `journal_mode = DELETE` + `synchronous = NORMAL`
+  (NOT WAL) — chosen so a `.cadz` is **self-contained at rest** (no `-wal`/`-shm`
+  sidecars) for clean copy/share/move. DELETE sacrifices write concurrency,
+  fine for a single-writer desktop app.
+- **`createRevision()` always advances `head_rev_id`** to the new revision,
+  regardless of `parentRevId`. Linear history = `parentRevId` defaults to current
+  head; forking/branching = pass an older `parentRevId`. This is the foundation
+  for both the PDM revision browser and chat forking.
+- **Mesh blobs** are stored as raw Float32 `Buffer`s; `storeMeshBlob()` accepts
+  `number[] | Float32Array` (the existing `parseStl` produces `number[]`, so the
+  `update_model` wiring can hand a rendered mesh straight in).
+
+Endpoints added in `server/app.ts`: `GET/POST /api/workspace`,
+`GET/PUT /api/settings`, part CRUD (`/api/parts/*`), revision routes
+(`GET /api/parts/:id/revisions`, `GET …/revisions/:revId`,
+`POST …/checkpoint`, `POST …/revisions/:revId/restore`,
+`PATCH …/revisions/:revId`), and chat routes (`GET/PUT …/messages`). The build
+tool (`makeUpdateModelTool`) auto-creates a revision (cached mesh) on every
+successful render.
+
+> Native-build note: `better-sqlite3` has an install script; pnpm v11 blocks it
+> until approved. We set `better-sqlite3: true` under `allowBuilds` in
+> `pnpm-workspace.yaml` and ran `pnpm rebuild better-sqlite3`. It runs in the
+> backend (Node), NOT the renderer — so `contextIsolation`/`sandbox` are
+> unaffected. When the backend embeds in Electron main, it needs an
+> `@electron/rebuild` step for the Electron ABI (flagged as a packaging task).
+
+---
 
 ### Backend gotchas
 
@@ -289,10 +426,16 @@ bootstrap in `index.ts`).
     blocks its postinstall until you set `esbuild: true` under `allowBuilds` in
     `pnpm-workspace.yaml` (done). If `dev:server` errors with a missing esbuild
     binary, run `pnpm rebuild esbuild`.
-20. **Electron renderer origin is `app://...`, not `localhost`.** During web dev
-    CORS `ALLOWED_ORIGIN=http://localhost:5173` is enough. If you test chat from
-    the Electron shell and hit CORS, set `ALLOWED_ORIGIN=*` (or the app origin)
-    in `server/.env`. (When the backend later moves in-process, CORS goes away.)
+20. **Electron renderer talks to the backend via the `app://` proxy, NOT
+    directly.** The renderer's origin is `app://bundle` (packaged) or
+    `http://localhost:5173` (dev:desktop) — both would hit CORS fetching
+    `localhost:8787` directly. So the renderer uses `app://bundle/api/…`
+    (detected via `window.electronAPI.isElectron`), and `electron/main.ts`'s
+    protocol handler forwards `/api/*` to the backend. **Do NOT remove the
+    proxy or point the renderer at `localhost:8787` in Electron** — fetches will
+    fail with "Failed to fetch" (= "can't reach backend"). Web dev (no
+    Electron) still uses `localhost:8787` directly with CORS
+    `ALLOWED_ORIGIN=http://localhost:5173`.
 21. **"Backend down" surfaces as a *browser* fetch error, message varies by
     browser.** When the AI backend isn't running, `useChat`'s fetch rejects
     before any HTTP response, so `error.message` is the browser's wording —
@@ -352,14 +495,20 @@ bootstrap in `index.ts`).
   ship inside the asar.
 - **`main` field** in package.json is `dist-electron/main.cjs` — that's what
   `electron .` and the packaged app execute.
-- **The packaged desktop app does NOT run the backend yet.** `electron/main.ts`
-  only serves the renderer SPA via `app://`; it never starts the Hono server.
-  So chat + CAD work only in web-dev mode (`pnpm dev:all`, where the server is a
-  separate process) — in the packaged Electron app `localhost:8787` has nothing
-  listening and chat/CAD silently fail. Embedding the server in main (import
-  `app` from `server/app.ts`, call `serve()` in-process, set `process.env`
-  keys/`OPENSCAD_PATH` first) is the prerequisite for *any* desktop self-
-  containment work (bundling/auto-downloading OpenSCAD, real export, etc.).
+- **The desktop app proxies `/api/*` to the backend (no CORS).** The `app://`
+  protocol handler in `electron/main.ts` now routes any `app://bundle/api/…`
+  request to the running backend (`http://localhost:8787` by default, override
+  with `ELECTRON_BACKEND_URL`), forwarding method/content-type/body and adding
+  `Access-Control-Allow-Origin: *`. The renderer detects Electron
+  (`window.electronAPI.isElectron`, set by the preload) and uses
+  `app://bundle/api` as its API base in `app/lib/api.ts` — so all fetches are
+  same-origin to the protocol and never hit browser CORS. The `app` scheme is
+  registered with `corsEnabled: true`. This fixes the "can't reach backend /
+  stuck save spinner" in the Electron shell.
+- **The desktop app still needs the backend running as a separate process**
+  (`pnpm dev:server`) — the proxy forwards to it; it does not embed it. So in
+  the packaged Electron app you must run the server too (embedding the Hono
+  `app` in-process is still the self-containment prerequisite).
 
 ---
 
@@ -538,7 +687,15 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | `app/dummy/`                   | **DELETED** — retired now that real OpenSCAD is wired     |
 | `app/services/websocket.ts`    | **Mocked** — `DummyWebSocketClient`; becomes real WS for CAD progress |
 | Export in `useModelStore`      | **Mocked** — returns a fake blob; real `/api/export` is a later task |
+| Save UX (Save button + ⌘/Ctrl+S, per-tab `saveState` indicators, name-on-first-save) | **LIVE** — force-flushes chat; NamePrompt names/creates the part; rename now refreshes the workspace list |
 | Connection status              | **Mocked** — reflects the dummy WS, not the AI backend    |
+| Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
+| Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.chatcad/settings.json` |
+| Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
+| Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh); read-only preview disables build |
+| Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
+| Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json`, linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist + flush-on-switch + beforeunload |
+| Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |
 
 The tool result (`BackendResult`-shaped) is what drives the viewport via
 `useModelStore.setModel`; a failed render leaves the previous mesh in place.
@@ -557,9 +714,60 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
 4. Embed the Hono backend in Electron's main process (import `app` from
    `server/app.ts`, call `serve()` in-process) so the desktop app is
    self-contained.
-5. Persist the resizable-panel split, the selected view mode, and the grid/gizmo
-   toggles. (Phase 2) projects. Code editor + live sync (Phase 3). Build123D
-   backend as an alternative `ModelingBackend`.
+5. **Storage / persistence — in progress (Phase plan):**
+   - **Phase 0 ✅ DONE** — `.cadz` SQLite container (`server/storage/`), workspace
+     root, and `/api/settings` are live. Part-domain functions exist (create/list/
+     get/update/delete, createRevision, listRevisions, getMeshBlob, upsertMessage)
+     but are **not yet mounted as routes or wired to the UI**.
+   - **Phase 1 ✅ DONE** — part CRUD routes (`/api/parts/*`), workspace picker,
+     first-run `WorkspaceSetup` modal, `useWorkspaceStore` + `useDocumentsStore`
+     (single-doc), `useSettingsStore` persistence (model + lastOpenDocIds),
+     `Toolbar` doc controls + `PartsBrowser`, reload reopens last part. Builds
+     auto-create a revision (and an Untitled part on first build) via the
+     per-request `makeUpdateModelTool`. Chat is NOT persisted yet (Phase 4).
+   - **Phase 2 ✅ DONE** — PDM revision history. History tab (right panel),
+     `previewRevision` (read-only time-travel; cached mesh = instant; build
+     disabled while previewing), `restoreRevision` (unified forward-fork, reuses
+     the source mesh blob), `checkpoint` (tags current HEAD `label`). Schema
+     migrated v1→v2 (`revisions.label`) via a real versioned ladder. Preview
+     disables chat send + shows a viewport banner.
+   - **Phase 3 ✅ DONE** — multi-part tabs. `useDocumentsStore` refactored to
+     `openDocs[]` + `activeClientId` (denormalized `activeId/activeMeta/
+     previewingRevId` keep selectors stable). `TabBar` (full-width); single
+     `useChat` **swapped per tab** via `useTabChatSync` (snapshot outgoing →
+     restore incoming); mesh kept warm per doc → instant re-render on switch.
+     `useModelSync` now uses a **session `processedRef: Set<toolCallId>`** so
+     restored conversations don't re-fire the ephemeral mesh fetch. New tab =
+     blank (`partId:null`) until first build auto-creates it. Reopen **all**
+     last-open tabs on launch (first active, rest background). FIFO cap 8;
+     switch/close disabled while busy.
+   - **Phase 4 ✅ DONE** — chat disk persistence (linear). `/api/parts/:id/messages`
+     (GET/PUT) over the existing `messages` table; `upsertMessageBatch` writes a
+     **full-replace linear chain** (`parent_msg_id` = previous msg) so
+     regenerate/truncate cleanly drops orphans. `chat-persist.ts` serializes the
+     whole UIMessage to `parts_json` + extracts `produced_rev_id` from tool parts
+     (completes the chat↔revision link). **Lazy hydration**: chat loads on first
+     tab activate (`chatLoaded`/`chatLoading` per OpenDoc; `loadChat`), not on
+     open — honors "mesh warm, chat loads on demand". `useChatPersist` debounces
+     (~600ms) writes to the active doc; flushes the outgoing doc on tab switch
+     and the active doc on `beforeunload`. No forking UI (linear) — branching is
+     a future pure-client add-on since the DAG columns are already populated.
+   - **Phase 5 (next, optional)** — sheet-metal meta slot + assembly manifest
+     (stored stubs, no ops), OR chat branching UI (switcher / fork-from-here),
+     OR real export (`/api/export`).
+   - **Phase 3** — multi-part **tabs** (`useDocumentsStore` open-doc list), swap-on-
+     activate single `useChat` (serialize outgoing messages, restore incoming),
+     mesh LRU so switching tabs re-renders instantly while chat loads lazily,
+     reopen-last-docs-on-launch.
+   - **Phase 4** — chat **DAG + forking**: `parent_msg_id` storage surfaced in UI
+     (branch switcher, "fork from here"); validate `UIMessage.parts` round-trips
+     through `parts_json` (watch image data-URL bloat + `tool-update_model` parts).
+   - **Phase 5** — sheet-metal meta slot + assembly manifest (stored stubs, no ops).
+   UI prefs (panel split, view mode, grid/gizmo toggles, lastOpenDocIds) now
+   persist via `/api/settings` → `<workspace>/.chatcad/settings.json`; the
+   frontend stores still need to be wired to read/write them. Code editor + live
+   sync (Phase 3 of the original roadmap). Build123D backend as an alternative
+   `ModelingBackend`.
 6. **Optional perf headroom:** R3F runs `frameloop="always"` with damping +
    1024² shadows + `preserveDrawingBuffer`; switching to `frameloop="demand"`
    (invalidate on change) and dropping `preserveDrawingBuffer` would reclaim

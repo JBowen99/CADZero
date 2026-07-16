@@ -19,6 +19,7 @@ interface ModelState {
     cadCode: string,
     language: BackendName,
   ) => void;
+  setCode: (cadCode: string, language: BackendName) => void;
   setBuilding: (building: boolean) => void;
   exportModel: (format: ExportFormat) => Promise<ExportResult>;
   clear: () => void;
@@ -35,6 +36,8 @@ export const useModelStore = create<ModelState>((set) => ({
   setBackend: (b) => set({ backend: b }),
 
   setModel: (mesh, cadCode, language) => set({ mesh, cadCode, language }),
+
+  setCode: (cadCode, language) => set({ cadCode, language, mesh: null }),
 
   setBuilding: (building) => set({ isBuilding: building }),
 

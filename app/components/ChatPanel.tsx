@@ -17,6 +17,7 @@ import { ChatMessage } from "./ChatMessage";
 import { describeChatError, isChatBusy, useChatActions, useChatState, useChatStatus } from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { modelsUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
 import { buildImageParts, extractImageFiles, IMAGE_LIMITS } from "~/lib/images";
@@ -80,6 +81,13 @@ export function ChatPanel() {
   const setMode = useChatModeStore((s) => s.setMode);
   const model = useSettingsStore((s) => s.model);
   const setModel = useSettingsStore((s) => s.setModel);
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
+  const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
+  const chatLoading = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.chatLoading ??
+      false,
+  );
 
   const [value, setValue] = useState("");
   const [dismissed, setDismissed] = useState(false);
@@ -94,6 +102,7 @@ export function ChatPanel() {
     models.find((m) => m.id === model)?.supportsVision ?? false;
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     let cancelled = false;
     void fetch(modelsUrl)
       .then((r) => r.json())
@@ -112,7 +121,7 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, [setModel]);
+  }, [setModel, settingsLoaded]);
 
   const messageCount = messages.length;
   useEffect(() => {
@@ -210,7 +219,12 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col">
-      {messages.length === 0 ? (
+      {chatLoading ? (
+        <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading conversation…
+        </div>
+      ) : messages.length === 0 ? (
         <div className="flex-1 overflow-hidden">
           <EmptyChat onPick={(p) => sendMessage({ text: p })} />
         </div>
@@ -390,8 +404,16 @@ export function ChatPanel() {
             size="icon-sm"
             className="h-7 w-7 shrink-0"
             onClick={busy ? stop : submit}
-            disabled={!busy && !value.trim() && images.length === 0}
+            disabled={
+              (!busy && !value.trim() && images.length === 0) ||
+              (!!previewingRevId && !busy)
+            }
             aria-label={busy ? "Stop generating" : "Send prompt"}
+            title={
+              previewingRevId && !busy
+                ? "Exit history preview to build"
+                : undefined
+            }
           >
             {busy ? (
               status === "streaming" ? (
@@ -405,7 +427,9 @@ export function ChatPanel() {
           </Button>
         </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          ⌘/Ctrl + Enter to send
+          {previewingRevId
+            ? "Viewing an older version — restore or return to current to build."
+            : "⌘/Ctrl + Enter to send"}
         </p>
       </div>
     </div>

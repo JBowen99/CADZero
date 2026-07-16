@@ -4,6 +4,8 @@ import type { BackendName, TriangleMesh } from "~/types";
 import { useChatState } from "~/lib/ai-chat";
 import { meshUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 
 interface BuildInput {
   code?: string;
@@ -17,6 +19,8 @@ interface BuildOutput {
   message?: string;
   stderr?: string;
   triangleCount?: number;
+  partId?: string;
+  revId?: string;
 }
 
 interface BuildPart {
@@ -50,7 +54,7 @@ async function fetchMesh(id: string): Promise<TriangleMesh> {
 
 export function useModelSync() {
   const { messages } = useChatState();
-  const syncedRef = useRef<string | null>(null);
+  const processedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -77,20 +81,31 @@ export function useModelSync() {
 
     useModelStore.getState().setBuilding(building);
 
+    const ac = useDocumentsStore.getState().activeClientId;
+    if (ac && building) {
+      useDocumentsStore.getState().setSaveState(ac, "saving");
+    }
+
     if (!lastResolved) return;
     const tcid = lastResolved.toolCallId;
-    if (!tcid || tcid === syncedRef.current) return;
-    syncedRef.current = tcid;
+    if (!tcid || processedRef.current.has(tcid)) return;
+    processedRef.current.add(tcid);
 
     const { output, input } = lastResolved;
     if (output?.success && output.meshId && input?.code) {
+      const language: BackendName = input.language ?? "openscad";
       void fetchMesh(output.meshId).then((mesh) => {
-        useModelStore.getState().setModel(
+        useModelStore.getState().setModel(mesh, input.code!, language);
+        useDocumentsStore.getState().patchActiveDoc({
           mesh,
-          input.code!,
-          input.language ?? "openscad",
-        );
+          cadCode: input.code!,
+          language,
+        });
       });
+      if (output.partId) {
+        void useDocumentsStore.getState().adoptBuiltPart(output.partId);
+        void useWorkspaceStore.getState().refresh();
+      }
     }
   }, [messages]);
 }

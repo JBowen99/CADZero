@@ -9,11 +9,12 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { Aperture, Box, Compass, Grid2x2, Grid3x3, Maximize2 } from "lucide-react";
+import { Aperture, ArrowLeft, Box, Compass, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { useModelStore } from "~/store/useModelStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { buildMesh } from "~/lib/mesh-worker-client";
 
 interface FitRef {
@@ -215,6 +216,9 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
+  const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
+  const exitPreview = useDocumentsStore((s) => s.exitPreview);
+  const restoreRevision = useDocumentsStore((s) => s.restoreRevision);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [processing, setProcessing] = useState(false);
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
@@ -310,6 +314,32 @@ export function Viewport() {
       {processing && (
         <div className="pointer-events-none absolute left-3 top-3 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm">
           Processing mesh…
+        </div>
+      )}
+      {previewingRevId && (
+        <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs shadow-sm">
+          <span className="font-medium text-amber-600 dark:text-amber-400">
+            Viewing older version
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 px-2 text-[11px]"
+            onClick={() => void exitPreview()}
+          >
+            <ArrowLeft className="size-3" />
+            Current
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-6 gap-1 px-2 text-[11px]"
+            onClick={() => void restoreRevision(previewingRevId)}
+          >
+            <RotateCcw className="size-3" />
+            Restore
+          </Button>
         </div>
       )}
       <div className="absolute right-3 top-3 flex items-center gap-1">

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Code2, MessageSquare } from "lucide-react";
+import { Code2, History, MessageSquare } from "lucide-react";
 import { ChatPanel } from "~/components/ChatPanel";
 import { CodeView } from "~/components/CodeView";
+import { HistoryPanel } from "~/components/HistoryPanel";
 import { cn } from "~/lib/utils";
 
-type SideTab = "chat" | "code";
+type SideTab = "chat" | "code" | "history";
 
 export function SidePanel() {
   const [tab, setTab] = useState<SideTab>("chat");
@@ -24,9 +25,21 @@ export function SidePanel() {
           icon={<Code2 className="size-3.5" />}
           label="Code"
         />
+        <TabButton
+          active={tab === "history"}
+          onClick={() => setTab("history")}
+          icon={<History className="size-3.5" />}
+          label="History"
+        />
       </div>
       <div className="min-h-0 flex-1">
-        {tab === "chat" ? <ChatPanel /> : <CodeView />}
+        {tab === "chat" ? (
+          <ChatPanel />
+        ) : tab === "code" ? (
+          <CodeView />
+        ) : (
+          <HistoryPanel />
+        )}
       </div>
     </aside>
   );

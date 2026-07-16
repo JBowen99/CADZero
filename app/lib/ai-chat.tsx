@@ -6,6 +6,7 @@ import { chatApiUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 
 type ChatInstance = ReturnType<typeof useChat>;
 type ChatStatus = ChatInstance["status"];
@@ -40,6 +41,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             model: useSettingsStore.getState().model,
             cadCode: useModelStore.getState().cadCode,
             language: useModelStore.getState().language,
+            partId: useDocumentsStore.getState().activeId,
           },
         }),
       }),

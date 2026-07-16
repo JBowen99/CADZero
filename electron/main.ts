@@ -4,6 +4,8 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 const DEV_SERVER_URL = "http://localhost:5173";
+const BACKEND_ORIGIN =
+  process.env.ELECTRON_BACKEND_URL ?? "http://localhost:8787";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -31,6 +33,7 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       supportFetchAPI: true,
       stream: true,
+      corsEnabled: true,
     },
   },
 ]);
@@ -45,8 +48,54 @@ function getRendererDir(): string {
   return path.join(app.getAppPath(), "build", "client");
 }
 
+async function proxyToBackend(request: Request, url: URL): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+  const target = new URL(`${url.pathname}${url.search}`, BACKEND_ORIGIN);
+  const headers = new Headers();
+  const contentType = request.headers.get("content-type");
+  if (contentType) headers.set("content-type", contentType);
+  const init: RequestInit = { method: request.method, headers };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = await request.arrayBuffer();
+  }
+  try {
+    const upstream = await fetch(target, init);
+    const respHeaders = new Headers(upstream.headers);
+    respHeaders.set("Access-Control-Allow-Origin", "*");
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: respHeaders,
+    });
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "backend unreachable", target: target.toString() }),
+      {
+        status: 502,
+        headers: {
+          "content-type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      },
+    );
+  }
+}
+
 async function handleAppProtocol(request: Request): Promise<Response> {
   const url = new URL(request.url);
+
+  if (url.pathname.startsWith("/api/")) {
+    return proxyToBackend(request, url);
+  }
+
   const baseDir = getRendererDir();
 
   let relativePath = decodeURIComponent(url.pathname);

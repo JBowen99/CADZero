@@ -4,6 +4,8 @@ import type { ConnectionStatus } from "~/types";
 import { isChatBusy, useChatStatus } from "~/lib/ai-chat";
 import { useConnectionStore } from "~/store/useConnectionStore";
 import { useModelStore } from "~/store/useModelStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 import { capabilitiesUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
 
@@ -25,6 +27,13 @@ export function StatusBar() {
   const busy = isChatBusy(chatStatus);
   const mesh = useModelStore((s) => s.mesh);
   const isBuilding = useModelStore((s) => s.isBuilding);
+  const activeMeta = useDocumentsStore((s) => s.activeMeta);
+  const saveState = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.saveState ??
+      null,
+  );
+  const root = useWorkspaceStore((s) => s.root);
 
   const [cap, setCap] = useState<Capability>({ state: "loading" });
   useEffect(() => {
@@ -96,7 +105,42 @@ export function StatusBar() {
         </span>
       )}
 
+      {activeMeta && (
+        <span className="hidden items-center gap-1.5 sm:inline-flex">
+          <Box className="size-3" />
+          Part:{" "}
+          <span className="max-w-[160px] truncate font-medium text-foreground">
+            {activeMeta.name}
+          </span>
+        </span>
+      )}
+
+      {root && (
+        <span
+          className="hidden max-w-[260px] truncate text-muted-foreground/70 lg:inline-flex"
+          title={root}
+        >
+          {root}
+        </span>
+      )}
+
       <span className="ml-auto flex items-center gap-2">
+        {saveState && (
+          <span className="flex items-center gap-1.5">
+            {saveState === "saving" && <Loader2 className="size-3 animate-spin" />}
+            <span
+              className={cn(
+                saveState === "unsaved" && "text-amber-600 dark:text-amber-400",
+              )}
+            >
+              {saveState === "saved"
+                ? "Saved"
+                : saveState === "saving"
+                  ? "Saving…"
+                  : "Unsaved"}
+            </span>
+          </span>
+        )}
         {isBuilding && (
           <span className="flex items-center gap-1.5">
             <Loader2 className="size-3 animate-spin" />
