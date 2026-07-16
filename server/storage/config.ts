@@ -22,7 +22,7 @@ export interface AppSettings {
 }
 
 export function configDir(): string {
-  return process.env.CADZ_HOME ?? path.join(homedir(), ".chatcad");
+  return process.env.CADZ_HOME ?? path.join(homedir(), ".cadzero");
 }
 
 export function configPath(): string {
@@ -63,7 +63,7 @@ export function writeAppConfig(patch: Partial<AppConfig>): AppConfig {
 
 export function settingsPath(): string | null {
   const root = getWorkspaceRoot();
-  return root ? path.join(root, ".chatcad", "settings.json") : null;
+  return root ? path.join(root, ".cadzero", "settings.json") : null;
 }
 
 export function readSettings(): AppSettings {

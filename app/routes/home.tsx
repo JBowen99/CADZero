@@ -23,7 +23,7 @@ import { useDocumentsStore } from "~/store/useDocumentsStore";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "AI CAD" },
+    { title: "CADZero" },
     { name: "description", content: "AI-native parametric CAD assistant" },
   ];
 }

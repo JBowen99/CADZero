@@ -13,7 +13,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 
-const DEFAULT_HINT = "~/.chatcad/workspace";
+const DEFAULT_HINT = "~/.cadzero/workspace";
 
 interface WorkspaceSetupProps {
   open?: boolean;

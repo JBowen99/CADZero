@@ -50,7 +50,7 @@ function run(
 }
 
 export async function renderScad(code: string): Promise<RenderResult> {
-  const dir = join(tmpdir(), "chatcad");
+  const dir = join(tmpdir(), "cadzero");
   await mkdir(dir, { recursive: true });
   const id = randomUUID();
   const scadPath = join(dir, `${id}.scad`);

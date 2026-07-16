@@ -1,4 +1,4 @@
-# Project Knowledge — AI CAD
+# Project Knowledge — CADZero
 
 Hard-won context for anyone (human or AI) working on this codebase. Captures
 non-obvious decisions, gotchas, and conventions learned while building the MVP
@@ -156,7 +156,7 @@ server/                       # AI chat backend (TypeScript, runs standalone now
 │   ├── db.ts                 # openPartDb(): LRU cache (16) of better-sqlite3 conns; journal_mode=DELETE (self-contained .cadz); migrate()
 │   ├── types.ts              # PartType, PartMeta, RevisionRecord, MessageRecord, StoredMesh, sheet-metal/assembly shapes
 │   ├── parts.ts              # part CRUD + createRevision (auto-advances head, optional cached mesh), listRevisions, getMeshBlob, upsertMessage
-│   ├── config.ts             # getWorkspaceRoot() (WORKSPACE_DIR env ?? app config), atomic config.json + <workspace>/.chatcad/settings.json
+│   ├── config.ts             # getWorkspaceRoot() (WORKSPACE_DIR env ?? app config), atomic config.json + <workspace>/.cadzero/settings.json
 │   └── workspace.ts          # requireWorkspaceRoot(), setWorkspaceRoot() (mkdir -p), listWorkspaceParts()
 ├── .env                      # gitignored — your real OpenRouter key goes here
 └── .env.example              # committed template
@@ -280,7 +280,7 @@ exact same SPA as the web app — Electron just loads it.
   `load()`s from `/api/settings` on boot (model + lastOpenDocIds). `ChatPanel`'s
   auto-select-first-model effect is **gated on `settingsLoaded`** so it doesn't
   clobber a persisted model in a race. Settings persist via a 400 ms debounced
-  PUT; the file lives at `<workspace>/.chatcad/settings.json`. `lastOpenDocIds[0]`
+  PUT; the file lives at `<workspace>/.cadzero/settings.json`. `lastOpenDocIds[0]`
   is reopened on launch (guarded by a `useRef` so it runs once, not on every
   `parts` refresh).
 - **Saving is automatic but now visible.** Every build → a revision, chat →
@@ -359,10 +359,10 @@ Design decisions (locked during planning — see the plan in chat history):
   `getWorkspaceRoot()`: **`WORKSPACE_DIR` env ?? `config.json`'s `workspaceRoot`**.
   The env var is a dev/automation override and is **not** persisted — set the
   root via `POST /api/workspace` to persist it.
-- **App config** lives in `~/.chatcad/config.json` (override dir with `CADZ_HOME`
+- **App config** lives in `~/.cadzero/config.json` (override dir with `CADZ_HOME`
   env). It currently holds only `workspaceRoot`. Electron will later point
   `CADZ_HOME` at `app.getPath('userData')`.
-- **UI settings** live in `<workspaceRoot>/.chatcad/settings.json` (so they
+- **UI settings** live in `<workspaceRoot>/.cadzero/settings.json` (so they
   travel with the project) — model, panelSplit, viewMode, grid/gizmo toggles,
   lastOpenDocIds. `GET/PUT /api/settings`. Read is lenient (returns `{}` if no
   workspace); write requires a workspace.
@@ -720,7 +720,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Save UX (Save button + ⌘/Ctrl+S, per-tab `saveState` indicators, name-on-first-save) | **LIVE** — force-flushes chat; NamePrompt names/creates the part; rename now refreshes the workspace list |
 | Connection status              | **Mocked** — reflects the dummy WS, not the AI backend    |
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
-| Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.chatcad/settings.json` |
+| Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.cadzero/settings.json` |
 | Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
 | Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
@@ -794,7 +794,7 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
      through `parts_json` (watch image data-URL bloat + `tool-update_model` parts).
    - **Phase 5** — sheet-metal meta slot + assembly manifest (stored stubs, no ops).
    UI prefs (panel split, view mode, grid/gizmo toggles, lastOpenDocIds) now
-   persist via `/api/settings` → `<workspace>/.chatcad/settings.json`; the
+   persist via `/api/settings` → `<workspace>/.cadzero/settings.json`; the
    frontend stores still need to be wired to read/write them. Code editor + live
    sync (Phase 3 of the original roadmap). Build123D backend as an alternative
    `ModelingBackend`.
