@@ -3,12 +3,18 @@ import { Code2, History, MessageSquare } from "lucide-react";
 import { ChatPanel } from "~/components/ChatPanel";
 import { CodeView } from "~/components/CodeView";
 import { HistoryPanel } from "~/components/HistoryPanel";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { cn } from "~/lib/utils";
 
 type SideTab = "chat" | "code" | "history";
 
 export function SidePanel() {
   const [tab, setTab] = useState<SideTab>("chat");
+  const codeDirty = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.codeDirty ??
+      false,
+  );
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background">
@@ -24,6 +30,7 @@ export function SidePanel() {
           onClick={() => setTab("code")}
           icon={<Code2 className="size-3.5" />}
           label="Code"
+          dirty={codeDirty}
         />
         <TabButton
           active={tab === "history"}
@@ -50,11 +57,13 @@ function TabButton({
   onClick,
   icon,
   label,
+  dirty,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  dirty?: boolean;
 }) {
   return (
     <button
@@ -69,6 +78,10 @@ function TabButton({
     >
       {icon}
       {label}
+      {dirty && (
+        <span className="size-1.5 rounded-full bg-primary" aria-hidden />
+      )}
     </button>
   );
 }
+

@@ -1,11 +1,32 @@
-import { Code2 } from "lucide-react";
-import { CodeBlock } from "~/components/CodeBlock";
+import { useCallback, useRef, useState } from "react";
+import { Code2, Loader2, Play, Redo2, Undo2, X } from "lucide-react";
+import { CodeEditor, type CodeEditorHandle } from "~/components/CodeEditor";
+import { Button } from "~/components/ui/button";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 
 export function CodeView() {
   const cadCode = useModelStore((s) => s.cadCode);
   const language = useModelStore((s) => s.language);
   const triangleCount = useModelStore((s) => s.mesh?.triangleCount ?? null);
+  const rendering = useModelStore((s) => s.isRendering);
+  const clientId = useDocumentsStore((s) => s.activeClientId);
+  const editActiveCode = useDocumentsStore((s) => s.editActiveCode);
+  const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
+  const editorRef = useRef<CodeEditorHandle>(null);
+
+  const [error, setError] = useState<string | null>(null);
+
+  const canRender = language === "openscad";
+
+  const handleRender = useCallback(async () => {
+    setError(null);
+    const result = await renderActiveCode();
+    if (!result.ok) {
+      const msg = result.stderr?.trim() || result.message || "Render failed.";
+      setError(msg);
+    }
+  }, [renderActiveCode]);
 
   if (!cadCode) {
     return (
@@ -25,19 +46,77 @@ export function CodeView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
         <span>{language} source</span>
-        {triangleCount != null && (
-          <span className="normal-case tracking-normal">
-            {triangleCount.toLocaleString()} triangles
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {triangleCount != null && (
+            <span className="normal-case tracking-normal">
+              {triangleCount.toLocaleString()} triangles
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => editorRef.current?.undo()}
+            title="Undo (⌘/Ctrl+Z)"
+            aria-label="Undo"
+          >
+            <Undo2 className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => editorRef.current?.redo()}
+            title="Redo (⌘/Ctrl+Shift+Z)"
+            aria-label="Redo"
+          >
+            <Redo2 className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => void handleRender()}
+            disabled={rendering || !canRender}
+            title={
+              canRender
+                ? "Render (⌘/Ctrl+Enter)"
+                : "build123d rendering is not supported yet"
+            }
+            aria-label="Render model"
+          >
+            {rendering ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <Play className="size-3" />
+            )}
+          </Button>
+        </div>
       </div>
+      {error && (
+        <div className="mx-3 mb-1 shrink-0 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-start justify-between gap-2">
+            <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed">
+              {error}
+            </pre>
+            <button
+              type="button"
+              className="shrink-0 text-destructive/70 hover:text-destructive"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto">
-        <CodeBlock
-          code={cadCode}
+        <CodeEditor
+          key={clientId}
+          ref={editorRef}
+          value={cadCode}
           language={language}
-          className="m-3 rounded-md"
+          onChange={editActiveCode}
+          onRender={() => void handleRender()}
         />
       </div>
     </div>

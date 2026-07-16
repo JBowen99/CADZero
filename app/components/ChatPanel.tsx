@@ -135,11 +135,17 @@ export function ChatPanel() {
     setDismissed(false);
   }, [error]);
 
-  const submit = () => {
+  const submit = async () => {
     const trimmed = value.trim();
     const files = visionModel && images.length > 0 ? images : undefined;
     if (!trimmed && !files) return;
     if (busy) return;
+    if (
+      mode === "build" &&
+      !(await useDocumentsStore.getState().guardCodeDirty())
+    ) {
+      return;
+    }
     if (trimmed) {
       sendMessage({ text: trimmed, files });
     } else if (files) {
@@ -149,10 +155,20 @@ export function ChatPanel() {
     setValue("");
   };
 
+  const guardedRegenerate = async () => {
+    if (
+      mode === "build" &&
+      !(await useDocumentsStore.getState().guardCodeDirty())
+    ) {
+      return;
+    }
+    regenerate();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -258,7 +274,7 @@ export function ChatPanel() {
             variant="ghost"
             size="sm"
             className="h-7 shrink-0 gap-1 px-2 text-xs"
-            onClick={() => regenerate()}
+            onClick={() => void guardedRegenerate()}
           >
             <RotateCcw className="size-3" />
             Retry
@@ -411,7 +427,7 @@ export function ChatPanel() {
                 type="button"
                 size="icon-sm"
                 className="h-7 w-7 shrink-0"
-                onClick={busy ? stop : submit}
+                onClick={busy ? stop : () => void submit()}
                 disabled={
                   (!busy && !value.trim() && images.length === 0) ||
                   (!!previewingRevId && !busy)

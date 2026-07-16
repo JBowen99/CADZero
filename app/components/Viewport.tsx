@@ -8,7 +8,7 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, Compass, Disc, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, Compass, Disc, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -293,8 +293,14 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
+  const rendering = useModelStore((s) => s.isRendering);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
+  const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
+  const meshStale = useDocumentsStore((s) => {
+    const d = s.openDocs.find((x) => x.clientId === s.activeClientId);
+    return !!d?.mesh && d.cadCode !== (d.meshCode ?? "");
+  });
   const restoreWithNote = useRestoreWithNote();
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -426,6 +432,28 @@ export function Viewport() {
           </Button>
         </div>
       )}
+      {rendering ? (
+        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+          <Loader2 className="size-3.5 animate-spin" />
+          Rendering…
+        </div>
+      ) : mesh && meshStale ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => void renderActiveCode()}
+              className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 shadow-sm hover:bg-amber-500/20 dark:text-amber-400"
+            >
+              <TriangleAlert className="size-3.5" />
+              Out of sync
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            The shown model doesn't match the current code. Click to render.
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (
           <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">

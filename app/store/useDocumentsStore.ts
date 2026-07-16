@@ -11,11 +11,14 @@ import type {
 import {
   checkpointUrl,
   messagesUrl,
+  meshUrl,
   partMeshUrl,
   partsUrl,
   partUrl,
+  renderUrl,
   restoreRevisionUrl,
   revisionUrl,
+  revisionsUrl,
 } from "~/lib/api";
 import { deserializeMessages } from "~/lib/chat-persist";
 import { useModelStore } from "~/store/useModelStore";
@@ -29,6 +32,7 @@ export interface OpenDoc {
   meta: PartSummary | null;
   mesh: TriangleMesh | null;
   cadCode: string;
+  meshCode: string | null;
   language: BackendName;
   chat: UIMessage[];
   chatLoaded: boolean;
@@ -37,6 +41,7 @@ export interface OpenDoc {
   pendingName: string | null;
   named: boolean;
   saveState: "saved" | "saving" | "unsaved";
+  codeDirty: boolean;
 }
 
 interface DocumentsState {
@@ -47,11 +52,25 @@ interface DocumentsState {
   previewingRevId: string | null;
   namePromptOpen: boolean;
   saveSignal: number;
+  codeDirtyGuard: { open: boolean; resolve?: (ok: boolean) => void } | null;
   openPart: (id: string, opts?: { background?: boolean }) => Promise<void>;
   newTab: () => void;
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
+  editActiveCode: (code: string) => void;
+  clearCodeDirty: () => void;
+  guardCodeDirty: () => Promise<boolean>;
+  resolveCodeDirtyGuard: (
+    outcome: "save" | "discard" | "cancel",
+  ) => Promise<void>;
+  discardActiveCodeEdits: () => Promise<void>;
+  renderActiveCode: () => Promise<{
+    ok: boolean;
+    stderr?: string;
+    message?: string;
+  }>;
+  flushActiveCode: () => Promise<void>;
   snapshotChat: (clientId: string, chat: UIMessage[]) => void;
   loadChat: (clientId: string) => Promise<UIMessage[]>;
   setSaveState: (clientId: string, state: OpenDoc["saveState"]) => void;
@@ -146,6 +165,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     previewingRevId: null,
     namePromptOpen: false,
     saveSignal: 0,
+    codeDirtyGuard: null,
 
     openPart: async (id, opts) => {
       const existing = get().openDocs.find((d) => d.partId === id);
@@ -163,6 +183,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meta: data.meta,
         mesh,
         cadCode: data.code ?? "",
+        meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         chat: [],
         chatLoaded: false,
@@ -171,6 +192,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         pendingName: null,
         named: true,
         saveState: "saved",
+        codeDirty: false,
       };
 
       set((s) => {
@@ -198,6 +220,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meta: null,
         mesh: null,
         cadCode: "",
+        meshCode: null,
         language: "openscad",
         chat: [],
         chatLoaded: true,
@@ -206,6 +229,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         pendingName: null,
         named: false,
         saveState: "unsaved",
+        codeDirty: false,
       };
       set((s) => {
         let openDocs = [...s.openDocs, doc];
@@ -249,6 +273,130 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
 
     patchActiveDoc: (patch) => {
       setActiveDocFields(patch);
+    },
+
+    editActiveCode: (code) => {
+      setActiveDocFields({ cadCode: code, codeDirty: true });
+      useModelStore.getState().setCadCode(code);
+    },
+
+    clearCodeDirty: () => {
+      setActiveDocFields({ codeDirty: false });
+    },
+
+    guardCodeDirty: async () => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc?.codeDirty) return true;
+      return new Promise<boolean>((resolve) => {
+        set({ codeDirtyGuard: { open: true, resolve } });
+      });
+    },
+
+    resolveCodeDirtyGuard: async (outcome) => {
+      const guard = get().codeDirtyGuard;
+      if (!guard?.resolve) return;
+      set({ codeDirtyGuard: null });
+      if (outcome === "cancel") {
+        guard.resolve(false);
+        return;
+      }
+      if (outcome === "save") {
+        await get().saveActiveNow();
+        guard.resolve(true);
+        return;
+      }
+      await get().discardActiveCodeEdits();
+      guard.resolve(true);
+    },
+
+    discardActiveCodeEdits: async () => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc) return;
+      let reverted = doc.cadCode;
+      if (doc.partId) {
+        try {
+          const res = await fetch(partUrl(doc.partId));
+          if (res.ok) {
+            const data: PartDocument = await res.json();
+            reverted = data.code ?? "";
+          }
+        } catch {
+          reverted = doc.cadCode;
+        }
+      } else {
+        reverted = doc.meshCode ?? "";
+      }
+      setActiveDocFields({ cadCode: reverted, codeDirty: false });
+      useModelStore.getState().setCadCode(reverted);
+    },
+
+    renderActiveCode: async () => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc) return { ok: false, message: "No active document." };
+      if (!doc.cadCode.trim()) {
+        return { ok: false, message: "Nothing to render — code is empty." };
+      }
+      useModelStore.getState().setRendering(true);
+      try {
+        let res: Response;
+        try {
+          res = await fetch(renderUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: doc.cadCode,
+              language: doc.language,
+            }),
+          });
+        } catch {
+          return { ok: false, message: "Render request failed." };
+        }
+        const out = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          meshId?: string;
+          stderr?: string;
+          message?: string;
+          triangleCount?: number;
+        } | null;
+        if (!out || !out.ok || !out.meshId) {
+          return { ok: false, stderr: out?.stderr, message: out?.message };
+        }
+        const meshRes = await fetch(meshUrl(out.meshId));
+        if (!meshRes.ok) {
+          return { ok: false, message: "Failed to load rendered mesh." };
+        }
+        const mesh = await decodeMesh(meshRes);
+        useModelStore.getState().setModel(mesh, doc.cadCode, doc.language);
+        setActiveDocFields({ mesh, meshCode: doc.cadCode });
+        return { ok: true };
+      } finally {
+        useModelStore.getState().setRendering(false);
+      }
+    },
+
+    flushActiveCode: async () => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc?.partId || !doc.codeDirty) return;
+      const res = await fetch(revisionsUrl(doc.partId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: doc.cadCode,
+          language: doc.language,
+          message: "Manual edit",
+        }),
+      });
+      if (!res.ok) return;
+      const { meta } = (await res.json()) as { meta: PartSummary };
+      setActiveDocFields({ meta, codeDirty: false });
     },
 
     snapshotChat: (clientId, chat) => {
@@ -357,6 +505,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     },
 
     previewRevision: async (revId) => {
+      if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
       const res = await fetch(revisionUrl(partId, revId));
@@ -372,7 +521,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         previewingRevId: revId,
         mesh: mesh ?? null,
         cadCode: detail.code,
+        meshCode: mesh ? detail.code : null,
         language: detail.language,
+        codeDirty: false,
       });
     },
 
@@ -388,11 +539,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       setActiveDocFields({
         mesh,
         cadCode: data.code ?? "",
+        meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
+        codeDirty: false,
       });
     },
 
     restoreRevision: async (revId) => {
+      if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
       const res = await fetch(restoreRevisionUrl(partId, revId), {
@@ -409,7 +563,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       setActiveDocFields({
         mesh,
         cadCode: data.code ?? "",
+        meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
+        codeDirty: false,
       });
     },
 
@@ -454,6 +610,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         set({ namePromptOpen: true });
         return;
       }
+      await get().flushActiveCode();
       set((s) => ({ saveSignal: s.saveSignal + 1 }));
     },
 
@@ -498,6 +655,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         return { namePromptOpen: false, ...buildState(openDocs, s.activeClientId) };
       });
       void useWorkspaceStore.getState().refresh();
+      await get().flushActiveCode();
       set((s) => ({ saveSignal: s.saveSignal + 1 }));
     },
   };

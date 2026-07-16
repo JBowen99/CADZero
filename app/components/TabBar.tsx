@@ -44,7 +44,7 @@ export function TabBar() {
             >
               {doc.saveState === "saving" ? (
                 <Loader2 className="size-3 shrink-0 animate-spin" />
-              ) : doc.saveState === "unsaved" ? (
+              ) : doc.saveState === "unsaved" || doc.codeDirty ? (
                 <span className="size-1.5 shrink-0 rounded-full bg-primary" />
               ) : null}
               <span className="max-w-[150px] truncate">{label}</span>

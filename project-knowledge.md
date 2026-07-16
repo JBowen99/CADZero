@@ -20,8 +20,13 @@ calls an `update_model` tool whose server-side `execute` runs the `openscad` CLI
 and streams a parsed triangle mesh back to the viewport. Plan / Chat / Build
 modes are user-selectable. **Persistence is live** (Phases 0–4): parts are
 `.cadz` SQLite files in a workspace, with PDM revision history, multi-part tabs,
-and per-part chat persistence. Build123D and a code editor are still deferred.
-See `AI CAD MVP Project Specification.md` for the full vision.
+and per-part chat persistence. **The Code tab is now a full editor** (CodeMirror
+6): edit code, Render to preview the mesh (ephemeral, no checkpoint), ⌘/Ctrl+S
+to save the code as a new `manual` revision, with dirty indicators, an
+out-of-sync viewport warning, and a discard/save guard before builds/restores.
+Build123D *rendering* is still deferred (the editor offers a Python grammar but
+only OpenSCAD can execute). See `AI CAD MVP Project Specification.md` for the
+full vision.
 
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
 > deliberately moved to **TypeScript + HTTP streaming** (Vercel AI SDK). The CAD
@@ -97,12 +102,14 @@ app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx
-│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey
+│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync" when the shown mesh ≠ current code (click → re-render)
 │   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; attachments render ABOVE the textarea; mode + model Selects with labels (container-query-hidden when the panel is narrow) + attach/send icon buttons (Radix tooltips) below the input; vision guard strips images on send + red warning
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
-│   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage + CodeView)
-│   ├── CodeView.tsx         # right-panel Code tab: shows current cadCode read-only
-│   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch
+│   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage tool-call cards)
+│   ├── CodeEditor.tsx       # CodeMirror 6 wrapper (forwardRef exposing undo/redo; cpp() grammar for OpenSCAD, python() for build123d; Mod-Enter → onRender; dark/light via next-themes). Used only by CodeView
+│   ├── CodeView.tsx         # right-panel Code tab: editable CodeMirror; header has Undo/Redo + Render (▶, ⌘/Ctrl+Enter); inline error banner on render failure; reads shared isRendering
+│   ├── CodeDirtyGuardDialog.tsx # discard/save/cancel modal shown before a build/restore/preview clobbers unsaved code edits (drives useDocumentsStore.codeDirtyGuard)
+│   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch; Code tab shows a ● when the active doc has unsaved code edits
 │   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
 │   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt. **Native scroll** (NOT radix ScrollArea — its overlay scrollbar clipped the right edge; uses the same `overflow-y-auto overflow-x-hidden` + `min-w-0` flex pattern as ChatPanel). List items show a **version number** (`v1`=oldest … `vN`=newest, computed as `revs.length - index` since the list is newest-first) instead of per-source icons (source type still shown in the subtitle text). `isHead`/"current" badge = `rev.revId === activeMeta.headRevId`.
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
@@ -113,7 +120,7 @@ app/
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / capabilitiesUrl / modelsUrl / exportUrl(id, format, revId?) (derived from VITE_AI_API_URL)
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / checkpointUrl / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
@@ -125,11 +132,11 @@ app/
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
 ├── store/
-│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, isExporting + exportJob {filename,format}|null, setModel, setCode, clear, exportModel(format, ctx)
+│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, isRendering, isExporting + exportJob {filename,format}|null, setModel, setCode, setCadCode (mesh-safe — edits don't clear the viewport), setBuilding, setRendering, clear, exportModel(format, ctx)
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
 │   ├── useSettingsStore.ts  # model + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace
-│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId; denormalized activeId/activeMeta/previewingRevId; openPart/newTab/closeTab/setActive/patchActiveDoc/snapshotChat/preview/restore/checkpoint (FIFO cap 8)
+│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId; denormalized activeId/activeMeta/previewingRevId; each OpenDoc also carries cadCode + meshCode (code that produced mesh → drives out-of-sync) + codeDirty; actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview/restore/checkpoint (FIFO cap 8)
 │   └── useConnectionStore.ts
 ├── types/
 │   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, ModelingBackend, etc.
@@ -143,7 +150,7 @@ app/
 
 ```
 server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), GET /api/parts/:id/export/:format (stl|obj|3mf; re-renders code via OpenSCAD, streams bytes; ?revId= exports a specific revision), /api/capabilities, /api/health
+├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual", code-only), GET /api/parts/:id/export/:format (stl|obj|3mf; re-renders code via OpenSCAD, streams bytes; ?revId= exports a specific revision), /api/capabilities, /api/health
 ├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
 ├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH; assertConfig()
 ├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
@@ -303,6 +310,78 @@ exact same SPA as the web app — Electron just loads it.
   build. **Rename refreshes the workspace list** (`rename` calls
   `useWorkspaceStore.refresh()`) so PartsBrowser matches — that was the
   "rename doesn't save" bug.
+- **The Code tab is a real editor (CodeMirror 6).** Deps (all declared directly
+  — pnpm blocks transitive imports, see gotcha #6): `@uiw/react-codemirror`,
+  `codemirror`, `@codemirror/view`, `@codemirror/commands`,
+  `@codemirror/lang-python`, `@codemirror/lang-cpp`, `@codemirror/theme-one-dark`.
+  Grammar: `cpp()` for OpenSCAD (C-like approximation — no real SCAD grammar),
+  `python()` for build123d. `CodeEditor` is `forwardRef` exposing `{undo,redo}`
+  (calls `@codemirror/commands` on the internal view); the Code toolbar has
+  Undo/Redo buttons, and native Ctrl+Z / Ctrl+Shift+Z work. `key={clientId}`
+  remounts the editor on doc switch (a clean undo boundary; per-doc undo history
+  is NOT retained across switches). Editor value = `useModelStore.cadCode` (the
+  active-doc projection); the editor is controlled, but `@uiw/react-codemirror`
+  only dispatches when its incoming `value` differs from its own buffer, so
+  typing doesn't fight the store.
+- **Editing code must NOT clear the viewport mesh.** `editActiveCode(code)`
+  patches the doc's `cadCode` + `codeDirty:true` and calls
+  `useModelStore.setCadCode(code)` — **not** `setCode` (which clears `mesh`).
+  `setCadCode` updates only `cadCode` so the viewport keeps showing the last
+  mesh (and the AI chat context `cadCode`, injected each turn, stays live).
+- **`codeDirty` is its own concept — orthogonal to chat `saveState`.** A doc can
+  have unsaved chat AND dirty code independently. The dirty dot shows in BOTH
+  the document tab (`TabBar`: `saveState==="unsaved" || codeDirty`) and the Code
+  sub-tab (`SidePanel`). Render/saving clear it; editing sets it; a build or
+  restore/preview that replaces the code also clears it (see below).
+- **Render = ephemeral preview, NOT a checkpoint.** `renderActiveCode()` POSTs
+  to `POST /api/render` (part-independent — works for brand-new tabs with no
+  `partId`; runs `renderScad` → `parseStl` → `MAX_TRIANGLES` → ephemeral
+  `storeMesh`; returns `{ok, meshId, triangleCount, stderr}`, HTTP 200 with
+  `ok:false` on compile/triangle errors so the client doesn't branch on status),
+  decodes the mesh into the doc, and **keeps `codeDirty`** — rendering does not
+  save. `useModelStore.isRendering` (set in a try/finally in `renderActiveCode`)
+  drives the Code-tab Render button spinner AND the Viewport's top-left badge:
+  while rendering it shows a non-clickable **"Rendering…"** spinner, otherwise
+  it falls back to the amber **"Out of sync"** badge. Render is triggered by the
+  ▶ button or **Mod-Enter** (a CodeMirror keymap, scoped to the editor — no
+  conflict with the chat textarea's Mod-Enter). Render failures surface as a
+  dismissible inline banner in the Code tab (full stderr, line numbers).
+- **Out-of-sync detection uses a `meshCode` snapshot.** Each `OpenDoc` stores
+  `meshCode` = the code that produced its current `mesh` (set at every
+  mesh-assignment: open, render, preview, restore, build; left untouched on
+  edit). Stale = `mesh != null && cadCode !== meshCode`. Because it's a
+  value snapshot (not a boolean), **undo-back-to-original auto-clears the
+  warning.** It lives on the doc so it survives tab switches; the Viewport
+  computes it via a `useDocumentsStore` selector (no model-store change).
+- **Save = a new `manual` revision (code-only).** `saveActiveNow()` (Toolbar
+  Save / ⌘/Ctrl+S) now also `flushActiveCode()`s: `POST /api/parts/:id/revisions`
+  → `createRevision(..., source:"manual", message:"Manual edit")`, **code-only
+  (no mesh blob)**, which advances `head_rev_id` + clears `codeDirty`, then the
+  existing `saveSignal++` flushes chat. For an unnamed/new doc it chains into
+  `resolveName` (create part first) so one Save persists code + chat in one
+  flow. `flushActiveCode` is a no-op unless `partId && codeDirty`, and on failure
+  leaves `codeDirty` so the user can retry. Known limitation (accepted): a
+  manually-saved revision has `mesh_blob_id` null, so **reopening it later shows
+  code + empty viewport until you Render** (within a session the client mesh
+  persists, so no perceived loss).
+- **Dirty guard before builds/restores/preview.** `guardCodeDirty()` returns a
+  promise (store-driven `CodeDirtyGuardDialog`, the `NamePrompt` pattern): if the
+  active doc isn't dirty it resolves `true` immediately, else the dialog offers
+  **Save** (`saveActiveNow` then proceed) / **Discard** (`discardActiveCodeEdits`
+  reverts `cadCode` to the last persisted code — re-fetches head if `partId`,
+  else `meshCode ?? ""` — and clears `codeDirty`) / **Cancel** (abort). It is
+  prepended to `restoreRevision` + `previewRevision` (store-level → all callers
+  covered), and to `ChatPanel.submit`/`guardedRegenerate` **only in build mode**
+  (chat/plan turns produce no revision, so no clobber). `restoreRevision`,
+  `previewRevision`, `exitPreview` set `codeDirty:false` (they replace the buffer
+  with a persisted revision's code). A successful AI build also clears it
+  (`useModelSync` build-success patch). Deferred: external code changes
+  (build/restore) still enter CodeMirror's undo stack (would need
+  `Transaction.addToHistory.of(false)`); undo/redo buttons are always enabled
+  (no public `canUndo` without internals).
+- **build123d in the editor:** the editor offers the Python grammar, but
+  `POST /api/render` rejects non-openscad and the Render button is disabled
+  with a tooltip — only OpenSCAD can execute.
 - **`saveState` must always be redeemable.** `useChatPersist` only flips a doc
   to `"saving"` when it can actually persist (`partId && chatLoaded`); it must
   never set `"saving"` for a doc whose chat isn't loaded yet, because `persist`
@@ -773,7 +852,8 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Off-main-thread geometry       | **LIVE** — Web Worker builds normals + bounding sphere (no UI hitch on large meshes) |
 | Image attachments (vision)     | **LIVE** — paste / drag-drop / paperclip; gated on per-model `supportsVision`; ≤4 imgs, ≤5 MB, downscaled; **non-vision model strips images on send + red warning** |
 | OpenSCAD auto-retry            | **LIVE** — `stopWhen: stepCountIs(4)` + `MAX_TRIANGLES=500_000` cap; model self-corrects from stderr |
-| Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code]` tabs in `SidePanel` (Code read-only) |
+| Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code|History]` tabs in `SidePanel` |
+| Editable Code tab (CodeMirror 6) | **LIVE** — edit code; `codeDirty` dot in the doc tab + Code sub-tab; Render ▶ / Mod-Enter → `POST /api/render` (ephemeral, no checkpoint); ⌘/Ctrl+S → `POST /api/parts/:id/revisions` (`source:"manual"`, code-only); undo/redo buttons + native shortcuts; out-of-sync viewport badge ↔ "Rendering…" badge; discard/save guard before build/restore/preview. OpenSCAD only (build123d grammar shown but Render disabled) |
 | Mesh transport                 | **LIVE** — `GET /api/mesh/:id` returns a BINARY frame `[Uint32 triangleCount][Float32 positions…]` (`application/octet-stream`); client decodes via `arrayBuffer()` + zero-copy `Float32Array` view (was JSON `number[]` — caused load-time freeze) |
 | Viewport view modes / controls | **LIVE** — Shaded/Solid/Wireframe, grid + view-cube toggles, Frame btn + `F` hotkey (reorients to front-right-top iso corner + fits), Radix tooltips on all top-right buttons, interaction-gated camera, dark-mode-correct |
 | OpenSCAD capability check      | **LIVE** — `GET /api/capabilities` (now checked server-side only; the bottom `StatusBar` was removed, so no UI surface currently shows it)  |
@@ -858,11 +938,15 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
      (branch switcher, "fork from here"); validate `UIMessage.parts` round-trips
      through `parts_json` (watch image data-URL bloat + `tool-update_model` parts).
    - **Phase 5** — sheet-metal meta slot + assembly manifest (stored stubs, no ops).
-   UI prefs (panel split, view mode, grid/gizmo toggles, lastOpenDocIds) now
-   persist via `/api/settings` → `<workspace>/.cadzero/settings.json`; the
-   frontend stores still need to be wired to read/write them. Code editor + live
-   sync (Phase 3 of the original roadmap). Build123D backend as an alternative
-   `ModelingBackend`.
+    UI prefs (panel split, view mode, grid/gizmo toggles, lastOpenDocIds) now
+    persist via `/api/settings` → `<workspace>/.cadzero/settings.json`; the
+    frontend stores still need to be wired to read/write them. **Code editor +
+    live render/save ✅ DONE** (CodeMirror 6; ephemeral Render; manual-revision
+    save; out-of-sync warning; dirty guard). Remaining editor polish: isolate
+    external (build/restore) code changes from the undo stack; a real OpenSCAD
+    grammar; `canUndo`/`canRedo`-aware button disabled state. Build123D
+    *execution* backend as an alternative `ModelingBackend` (the editor already
+    offers its Python grammar).
 6. **Optional perf headroom:** R3F runs `frameloop="always"` with damping +
    1024² shadows + `preserveDrawingBuffer`; switching to `frameloop="demand"`
    (invalidate on change) and dropping `preserveDrawingBuffer` would reclaim

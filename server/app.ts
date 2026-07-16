@@ -300,6 +300,30 @@ app.post("/api/parts/:id/revisions/:revId/restore", (c) => {
   return c.json({ meta, rev });
 });
 
+app.post("/api/parts/:id/revisions", async (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const body: {
+    code?: string;
+    language?: BackendName;
+    message?: string;
+    label?: string;
+  } = await c.req.json().catch(() => null);
+  if (!body || typeof body.code !== "string") {
+    return c.json({ error: "code required" }, 400);
+  }
+  const rev = createRevision(root, c.req.param("id"), {
+    code: body.code,
+    language: body.language ?? "openscad",
+    source: "manual",
+    message: body.message?.trim() || "Manual edit",
+    label: body.label?.trim() || null,
+  });
+  if (!rev) return c.json({ error: "part not found" }, 404);
+  const meta = getPart(root, c.req.param("id"));
+  return c.json({ meta, rev }, 201);
+});
+
 app.patch("/api/parts/:id/revisions/:revId", async (c) => {
   const root = workspaceOr400(c);
   if (typeof root !== "string") return root;
@@ -351,6 +375,44 @@ app.get("/api/mesh/:id", (c) => {
   if (!mesh) return c.json({ error: "mesh not found" }, 404);
   const positions = Buffer.from(Float32Array.from(mesh.positions).buffer);
   return sendMeshBody(c, { triangleCount: mesh.triangleCount, positions });
+});
+
+app.post("/api/render", async (c) => {
+  const body = await c.req
+    .json<{ code?: string; language?: BackendName }>()
+    .catch(() => null);
+  if (!body || typeof body.code !== "string") {
+    return c.json({ ok: false, message: "code required" }, 400);
+  }
+  if (body.language && body.language !== "openscad") {
+    return c.json({
+      ok: false,
+      message: `${body.language} rendering is not supported yet. Use OpenSCAD.`,
+    });
+  }
+  const rendered = await renderScad(body.code);
+  if (!rendered.ok || !rendered.stl) {
+    return c.json({
+      ok: false,
+      message: "OpenSCAD failed to render the model.",
+      stderr: rendered.stderr || "Unknown render error.",
+    });
+  }
+  const mesh = parseStl(rendered.stl);
+  if (mesh.triangleCount > MAX_TRIANGLES) {
+    return c.json({
+      ok: false,
+      message: `The model is ${mesh.triangleCount.toLocaleString()} triangles — too dense to handle smoothly.`,
+      stderr: "",
+    });
+  }
+  const meshId = storeMesh(mesh);
+  return c.json({
+    ok: true,
+    meshId,
+    triangleCount: mesh.triangleCount,
+    stderr: rendered.stderr || "",
+  });
 });
 
 function makeUpdateModelTool(opts: {

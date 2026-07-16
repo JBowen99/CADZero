@@ -6,6 +6,7 @@ import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { NamePrompt } from "~/components/NamePrompt";
+import { CodeDirtyGuardDialog } from "~/components/CodeDirtyGuardDialog";
 import { ExportDialog } from "~/components/ExportDialog";
 import { ChatProvider } from "~/lib/ai-chat";
 import { useModelSync } from "~/lib/useModelSync";
@@ -117,6 +118,7 @@ function Workspace() {
       </ResizablePanelGroup>
       {wsInitialized && !configured && <WorkspaceSetup />}
       <NamePrompt />
+      <CodeDirtyGuardDialog />
       <ExportDialog />
     </>
   );

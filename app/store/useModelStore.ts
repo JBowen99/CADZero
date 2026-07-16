@@ -22,6 +22,7 @@ interface ModelState {
   isExporting: boolean;
   exportJob: { filename: string; format: ExportFormat } | null;
   isBuilding: boolean;
+  isRendering: boolean;
   setBackend: (b: BackendName) => void;
   setModel: (
     mesh: TriangleMesh,
@@ -29,7 +30,9 @@ interface ModelState {
     language: BackendName,
   ) => void;
   setCode: (cadCode: string, language: BackendName) => void;
+  setCadCode: (cadCode: string) => void;
   setBuilding: (building: boolean) => void;
+  setRendering: (rendering: boolean) => void;
   exportModel: (format: ExportFormat, ctx: ExportContext) => Promise<ExportResult>;
   clear: () => void;
 }
@@ -42,6 +45,7 @@ export const useModelStore = create<ModelState>((set) => ({
   isExporting: false,
   exportJob: null,
   isBuilding: false,
+  isRendering: false,
 
   setBackend: (b) => set({ backend: b }),
 
@@ -49,7 +53,11 @@ export const useModelStore = create<ModelState>((set) => ({
 
   setCode: (cadCode, language) => set({ cadCode, language, mesh: null }),
 
+  setCadCode: (cadCode) => set({ cadCode }),
+
   setBuilding: (building) => set({ isBuilding: building }),
+
+  setRendering: (rendering) => set({ isRendering: rendering }),
 
   exportModel: async (format, ctx) => {
     const filename = `${sanitizeFileName(ctx.name ?? "model")}.${format}`;

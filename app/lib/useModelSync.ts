@@ -99,7 +99,9 @@ export function useModelSync() {
         useDocumentsStore.getState().patchActiveDoc({
           mesh,
           cadCode: input.code!,
+          meshCode: input.code!,
           language,
+          codeDirty: false,
         });
       });
       const docs = useDocumentsStore.getState();
