@@ -21,6 +21,14 @@ export const partsUrl = `${API_BASE}/parts`;
 export const partUrl = (id: string) => `${API_BASE}/parts/${id}`;
 export const partMeshUrl = (id: string, blobId: string) =>
   `${API_BASE}/parts/${id}/meshes/${blobId}`;
+export const exportUrl = (
+  id: string,
+  format: string,
+  revId?: string | null,
+) =>
+  `${API_BASE}/parts/${id}/export/${format}${
+    revId ? `?revId=${encodeURIComponent(revId)}` : ""
+  }`;
 export const revisionsUrl = (id: string) => `${partUrl(id)}/revisions`;
 export const revisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}`;

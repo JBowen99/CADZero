@@ -15,7 +15,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { config } from "./env";
 import { buildInstructions, type ChatMode } from "./system-prompt";
 import type { BackendName } from "./backend-types";
-import { renderScad, checkOpenScad } from "./backends/openscad";
+import { renderScad, exportScad, checkOpenScad } from "./backends/openscad";
 import { parseStl } from "./renderer/stl";
 import { storeMesh, getMesh } from "./mesh-store";
 import { listAvailableModels, resolveModelId } from "./models";
@@ -52,6 +52,17 @@ import type { PartType } from "./storage/types";
 const openrouter = createOpenRouter({ apiKey: config.openrouterApiKey });
 
 const MAX_TRIANGLES = 500_000;
+
+const EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
+  stl: { ext: "stl", mime: "model/stl" },
+  obj: { ext: "obj", mime: "model/obj" },
+  "3mf": { ext: "3mf", mime: "model/3mf" },
+};
+
+function sanitizeFileName(name: string): string {
+  const cleaned = name.trim().replace(/[^\w\-.]+/g, "_").replace(/_+/g, "_");
+  return cleaned.length > 0 ? cleaned : "model";
+}
 
 export const app = new Hono();
 
@@ -211,6 +222,48 @@ app.get("/api/parts/:id/meshes/:blobId", (c) => {
   if (typeof root !== "string") return root;
   const mesh = getMeshBlob(root, c.req.param("id"), c.req.param("blobId"));
   return sendMeshBody(c, mesh);
+});
+
+app.get("/api/parts/:id/export/:format", async (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const partId = c.req.param("id");
+  const format = c.req.param("format").toLowerCase();
+  const spec = EXPORT_FORMATS[format];
+  if (!spec) {
+    return c.json({ error: `unsupported export format: ${format}` }, 400);
+  }
+
+  const revId = c.req.query("revId");
+  let code: string | null = null;
+  if (revId) {
+    const rev = getRevision(root, partId, revId);
+    code = rev?.code ?? null;
+  } else {
+    const head = getHeadWithMesh(root, partId);
+    code = head?.code ?? null;
+  }
+  if (!code) {
+    return c.json({ error: "part has no code to export" }, 400);
+  }
+
+  const rendered = await exportScad(code, spec.ext);
+  if (!rendered.ok || !rendered.data) {
+    return c.json(
+      {
+        error: "OpenSCAD export failed",
+        stderr: rendered.stderr || "unknown error",
+      },
+      400,
+    );
+  }
+
+  const meta = getPart(root, partId);
+  const filename = `${sanitizeFileName(meta?.name ?? "model")}.${spec.ext}`;
+  return c.body(new Uint8Array(rendered.data), 200, {
+    "Content-Type": spec.mime,
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
 });
 
 app.get("/api/parts/:id/revisions", (c) => {

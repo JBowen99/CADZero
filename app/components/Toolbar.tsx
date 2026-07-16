@@ -115,9 +115,11 @@ export function Toolbar() {
   const setBackend = useModelStore((s) => s.setBackend);
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
-  const mesh = useModelStore((s) => s.mesh);
   const newTab = useDocumentsStore((s) => s.newTab);
   const saveActiveNow = useDocumentsStore((s) => s.saveActiveNow);
+  const activeId = useDocumentsStore((s) => s.activeId);
+  const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
+  const activeMeta = useDocumentsStore((s) => s.activeMeta);
   const root = useWorkspaceStore((s) => s.root);
 
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -131,15 +133,24 @@ export function Toolbar() {
   };
 
   const handleExport = async (format: ExportFormat) => {
-    if (!mesh) {
-      toast.error("Nothing to export yet — create a model first.");
+    if (!activeId) {
+      toast.error("Build or save the part first — nothing to export yet.");
       return;
     }
-    const result = await exportModel(format);
-    toast.success(
-      `Exported ${result.filename} (${result.sizeBytes.toLocaleString()} bytes)`,
-      { description: "Backend not connected — this is a dummy export." },
-    );
+    try {
+      const result = await exportModel(format, {
+        partId: activeId,
+        revId: previewingRevId ?? undefined,
+        name: activeMeta?.name ?? null,
+      });
+      toast.success(
+        `Exported ${result.filename} (${result.sizeBytes.toLocaleString()} bytes)`,
+      );
+    } catch (e) {
+      toast.error("Export failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    }
   };
 
   const toggleTheme = () => setTheme(isDark ? "light" : "dark");

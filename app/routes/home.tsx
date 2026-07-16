@@ -6,6 +6,7 @@ import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { NamePrompt } from "~/components/NamePrompt";
+import { ExportDialog } from "~/components/ExportDialog";
 import { ChatProvider } from "~/lib/ai-chat";
 import { useModelSync } from "~/lib/useModelSync";
 import { useTabChatSync } from "~/lib/useTabChatSync";
@@ -116,6 +117,7 @@ function Workspace() {
       </ResizablePanelGroup>
       {wsInitialized && !configured && <WorkspaceSetup />}
       <NamePrompt />
+      <ExportDialog />
     </>
   );
 }

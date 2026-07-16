@@ -106,13 +106,14 @@ app/
 │   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
 │   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
+│   ├── ExportDialog.tsx     # Export modal: non-dismissable while exporting (no X, Escape/overlay suppressed); indeterminate Loader2 spinner + filename + live elapsed-seconds counter; driven by useModelStore.exportJob
 │   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
 │   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
 │   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
-│   ├── utils.ts             # cn() helper (required by shadcn)
+│   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / capabilitiesUrl / modelsUrl (derived from VITE_AI_API_URL)
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / capabilitiesUrl / modelsUrl / exportUrl(id, format, revId?) (derived from VITE_AI_API_URL)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
@@ -123,7 +124,7 @@ app/
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
 ├── store/
-│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, setModel, setCode, clear
+│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, isExporting + exportJob {filename,format}|null, setModel, setCode, clear, exportModel(format, ctx)
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
 │   ├── useSettingsStore.ts  # model + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace
@@ -141,14 +142,14 @@ app/
 
 ```
 server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), /api/capabilities, /api/health
+├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), GET /api/parts/:id/export/:format (stl|obj|3mf; re-renders code via OpenSCAD, streams bytes; ?revId= exports a specific revision), /api/capabilities, /api/health
 ├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
 ├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH; assertConfig()
 ├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
 ├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
 ├── backend-types.ts          # BackendName = "openscad" | "build123d"
 ├── system-prompt.ts          # BASE_PROMPT + buildInstructions(mode, cadCode, language); Y-up viewport / Z-up OpenSCAD coordinate convention + code→viewport face mapping; attached-image guidance; BUILD retry-on-error policy
-├── backends/openscad.ts      # renderScad(code) spawns `openscad -o out.stl`; checkOpenScad()
+├── backends/openscad.ts      # runScadToOutput(code, ext) shared helper; renderScad(code) → STL Buffer (parseStl); exportScad(code, ext) → arbitrary-format Buffer; checkOpenScad()
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
 ├── mesh-store.ts             # ephemeral Map<meshId, TriangleMesh> (LRU, capped 64)
 ├── storage/                  # PERSISTENCE — .cadz sqlite part files + workspace + settings (Phase 0+)
@@ -303,6 +304,24 @@ exact same SPA as the web app — Electron just loads it.
   early-returns when `!chatLoaded` (to avoid writing stale/empty chat) — which
   would strand the spinner on `"saving"` forever (the original "Save just
   spins" bug, hit on reload when the active part's chat loads as empty).
+- **Export is real (STL/OBJ/3MF).** `Toolbar`'s export menu calls
+  `useModelStore.exportModel(format, { partId, revId?, name })`, which
+  `GET /api/parts/:id/export/:format` — the server re-renders the **stored
+  revision code** (`getHeadWithMesh`, or `getRevision(revId)` when `?revId=` is
+  passed, so a history **preview exports the previewed revision**) through the
+  OpenSCAD CLI via `exportScad(code, ext)` and streams the bytes back with a
+  `Content-Disposition` filename. The client `fetch` → `blob` → `downloadBlob`
+  (`<a download>`) — works in web + Electron. **This is a full parametric
+  re-render, not a mesh dump.** During export, `exportJob {filename, format}` is
+  set so the global `ExportDialog` shows: an indeterminate spinner + filename + a
+  live elapsed-seconds counter. **No determinate progress bar** — OpenSCAD's mesh
+  export is an opaque blocking CLI call with no progress signal. The dialog is
+  **non-dismissable while running** (close button hidden; Escape / overlay clicks
+  `preventDefault`; `onOpenChange` ignored) and auto-closes when the store clears
+  `exportJob` on completion. **STEP is deferred** — OpenSCAD cannot emit it (B-rep
+  kernel required; FreeCAD/OpenCASCADE path noted for later). Gating: `Toolbar`
+  refuses export with a toast when `!activeId` (unsaved tab) — a saved/built part
+  always has stored code.
 - **No comments in code** unless explicitly requested (house style).
 
 ---
@@ -716,7 +735,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | OpenSCAD capability check      | **LIVE** — `GET /api/capabilities` (now checked server-side only; the bottom `StatusBar` was removed, so no UI surface currently shows it)  |
 | `app/dummy/`                   | **DELETED** — retired now that real OpenSCAD is wired     |
 | `app/services/websocket.ts`    | **Mocked** — `DummyWebSocketClient`; becomes real WS for CAD progress |
-| Export in `useModelStore`      | **Mocked** — returns a fake blob; real `/api/export` is a later task |
+| Export in `useModelStore`      | **LIVE** — `GET /api/parts/:id/export/:format` re-renders the part's code via the OpenSCAD CLI (stl/obj/3mf) and streams bytes back; client fetches → blob → `<a download>` (works in web + Electron). Exports the previewed revision when `?revId=` is set. A non-dismissable `ExportDialog` (indeterminate spinner + filename + elapsed timer) shows during export. **STEP is deferred** — OpenSCAD can't emit it (needs a B-rep kernel like FreeCAD/OpenCASCADE). |
 | Save UX (Save button + ⌘/Ctrl+S, per-tab `saveState` indicators, name-on-first-save) | **LIVE** — force-flushes chat; NamePrompt names/creates the part; rename now refreshes the workspace list |
 | Connection status              | **Mocked** — reflects the dummy WS, not the AI backend    |
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
@@ -736,9 +755,11 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
 
 1. **Install OpenSCAD** on any dev/deploy machine (`sudo dnf install openscad`
    on Fedora, or set `OPENSCAD_PATH`). Without it, build turns fail gracefully.
-2. **Real export:** add `GET /api/export/:meshId?format=stl|obj|3mf` (serve the
-   cached STL or re-render) and wire `useModelStore.exportModel` to it; the
-   toolbar export toast currently says "dummy".
+2. **Real export ✅ DONE** — `GET /api/parts/:id/export/:format` (stl/obj/3mf)
+   re-renders the part's code via the OpenSCAD CLI and streams bytes back; the
+   client blob-downloads it. A non-dismissable `ExportDialog` shows progress
+   (indeterminate spinner + elapsed timer). STEP is still deferred (needs a B-rep
+   kernel like FreeCAD/OpenCASCADE).
 3. **Real WebSocket transport** replacing `DummyWebSocketClient` (for CAD
    progress / long renders), or keep HTTP streaming for everything.
 4. Embed the Hono backend in Electron's main process (import `app` from
@@ -782,9 +803,9 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
      (~600ms) writes to the active doc; flushes the outgoing doc on tab switch
      and the active doc on `beforeunload`. No forking UI (linear) — branching is
      a future pure-client add-on since the DAG columns are already populated.
-   - **Phase 5 (next, optional)** — sheet-metal meta slot + assembly manifest
-     (stored stubs, no ops), OR chat branching UI (switcher / fork-from-here),
-     OR real export (`/api/export`).
+    - **Phase 5 (next, optional)** — sheet-metal meta slot + assembly manifest
+      (stored stubs, no ops), OR chat branching UI (switcher / fork-from-here),
+      OR STEP export (via FreeCAD/OpenCASCADE — OpenSCAD can't emit STEP).
    - **Phase 3** — multi-part **tabs** (`useDocumentsStore` open-doc list), swap-on-
      activate single `useChat` (serialize outgoing messages, restore incoming),
      mesh LRU so switching tabs re-renders instantly while chat loads lazily,

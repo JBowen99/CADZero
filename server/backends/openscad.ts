@@ -16,6 +16,13 @@ export interface RenderResult {
   durationMs: number;
 }
 
+export interface ExportResult {
+  ok: boolean;
+  data?: Buffer;
+  stderr: string;
+  durationMs: number;
+}
+
 interface ExecError extends Error {
   stderr?: string;
   stdout?: string;
@@ -49,25 +56,35 @@ function run(
   });
 }
 
-export async function renderScad(code: string): Promise<RenderResult> {
+interface ScadOutputResult {
+  ok: boolean;
+  out?: Buffer;
+  stderr: string;
+  durationMs: number;
+}
+
+async function runScadToOutput(
+  code: string,
+  outExt: string,
+): Promise<ScadOutputResult> {
   const dir = join(tmpdir(), "cadzero");
   await mkdir(dir, { recursive: true });
   const id = randomUUID();
   const scadPath = join(dir, `${id}.scad`);
-  const stlPath = join(dir, `${id}.stl`);
+  const outPath = join(dir, `${id}.${outExt}`);
   const start = Date.now();
 
   try {
     await writeFile(scadPath, code, "utf8");
-    const { stderr } = await run(["-o", stlPath, scadPath], RENDER_TIMEOUT_MS);
-    let stl: Buffer | undefined;
+    const { stderr } = await run(["-o", outPath, scadPath], RENDER_TIMEOUT_MS);
+    let out: Buffer | undefined;
     try {
-      const s = await stat(stlPath);
-      if (s.size > 0) stl = await readFile(stlPath);
+      const s = await stat(outPath);
+      if (s.size > 0) out = await readFile(outPath);
     } catch {
-      stl = undefined;
+      out = undefined;
     }
-    return { ok: !!stl, stl, stderr: stderr.trim(), durationMs: Date.now() - start };
+    return { ok: !!out, out, stderr: stderr.trim(), durationMs: Date.now() - start };
   } catch (e) {
     const execErr = e as ExecError;
     const killed = execErr.killed === true;
@@ -83,9 +100,22 @@ export async function renderScad(code: string): Promise<RenderResult> {
   } finally {
     await Promise.allSettled([
       rm(scadPath, { force: true }),
-      rm(stlPath, { force: true }),
+      rm(outPath, { force: true }),
     ]);
   }
+}
+
+export async function renderScad(code: string): Promise<RenderResult> {
+  const r = await runScadToOutput(code, "stl");
+  return { ok: r.ok, stl: r.out, stderr: r.stderr, durationMs: r.durationMs };
+}
+
+export async function exportScad(
+  code: string,
+  ext: string,
+): Promise<ExportResult> {
+  const r = await runScadToOutput(code, ext);
+  return { ok: r.ok, data: r.out, stderr: r.stderr, durationMs: r.durationMs };
 }
 
 export async function checkOpenScad(): Promise<{

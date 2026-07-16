@@ -5,6 +5,14 @@ import type {
   ExportResult,
   TriangleMesh,
 } from "~/types";
+import { exportUrl } from "~/lib/api";
+import { downloadBlob, sanitizeFileName } from "~/lib/utils";
+
+export interface ExportContext {
+  partId: string;
+  revId?: string | null;
+  name?: string | null;
+}
 
 interface ModelState {
   mesh: TriangleMesh | null;
@@ -12,6 +20,7 @@ interface ModelState {
   language: BackendName;
   backend: BackendName;
   isExporting: boolean;
+  exportJob: { filename: string; format: ExportFormat } | null;
   isBuilding: boolean;
   setBackend: (b: BackendName) => void;
   setModel: (
@@ -21,7 +30,7 @@ interface ModelState {
   ) => void;
   setCode: (cadCode: string, language: BackendName) => void;
   setBuilding: (building: boolean) => void;
-  exportModel: (format: ExportFormat) => Promise<ExportResult>;
+  exportModel: (format: ExportFormat, ctx: ExportContext) => Promise<ExportResult>;
   clear: () => void;
 }
 
@@ -31,6 +40,7 @@ export const useModelStore = create<ModelState>((set) => ({
   language: "openscad",
   backend: "openscad",
   isExporting: false,
+  exportJob: null,
   isBuilding: false,
 
   setBackend: (b) => set({ backend: b }),
@@ -41,13 +51,32 @@ export const useModelStore = create<ModelState>((set) => ({
 
   setBuilding: (building) => set({ isBuilding: building }),
 
-  exportModel: async (format) => {
-    set({ isExporting: true });
+  exportModel: async (format, ctx) => {
+    const filename = `${sanitizeFileName(ctx.name ?? "model")}.${format}`;
+    set({ isExporting: true, exportJob: { filename, format } });
     try {
-      const sizeBytes = 1024 + Math.round(Math.random() * 24000);
-      return { format, sizeBytes, filename: `model.${format}` };
+      const res = await fetch(
+        exportUrl(ctx.partId, format, ctx.revId ?? undefined),
+      );
+      if (!res.ok) {
+        let detail = `Export failed (status ${res.status})`;
+        try {
+          const body = (await res.json()) as {
+            error?: string;
+            stderr?: string;
+          };
+          if (body?.stderr) detail = body.stderr;
+          else if (body?.error) detail = body.error;
+        } catch {
+          /* not JSON */
+        }
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      downloadBlob(blob, filename);
+      return { format, sizeBytes: blob.size, filename };
     } finally {
-      set({ isExporting: false });
+      set({ isExporting: false, exportJob: null });
     }
   },
 
