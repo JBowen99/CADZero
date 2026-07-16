@@ -99,12 +99,12 @@ app/
 │   ├── Toolbar.tsx
 │   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey
 │   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; attachments render ABOVE the textarea; mode + model Selects with labels (container-query-hidden when the panel is narrow) + attach/send icon buttons (Radix tooltips) below the input; vision guard strips images on send + red warning
-│   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr)
+│   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage + CodeView)
 │   ├── CodeView.tsx         # right-panel Code tab: shows current cadCode read-only
 │   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch
 │   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
-│   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt
+│   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt. **Native scroll** (NOT radix ScrollArea — its overlay scrollbar clipped the right edge; uses the same `overflow-y-auto overflow-x-hidden` + `min-w-0` flex pattern as ChatPanel). List items show a **version number** (`v1`=oldest … `vN`=newest, computed as `revs.length - index` since the list is newest-first) instead of per-source icons (source type still shown in the subtitle text). `isHead`/"current" badge = `rev.revId === activeMeta.headRevId`.
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
 │   ├── ExportDialog.tsx     # Export modal: non-dismissable while exporting (no X, Escape/overlay suppressed); indeterminate Loader2 spinner + filename + live elapsed-seconds counter; driven by useModelStore.exportJob
 │   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
@@ -117,8 +117,9 @@ app/
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
-│   ├── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches binary /api/mesh/:id -> setModel + patchActiveDoc
+│   ├── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches binary /api/mesh/:id -> setModel + patchActiveDoc. **Also keeps meta.headRevId fresh:** when building on an EXISTING part (`active.partId === output.partId`) it patches `meta` with `headRevId: output.revId` + bumps `updatedAt` — `adoptBuiltPart` returns early in that case so without this the History "current" badge lands one revision behind (stale headRevId). `updatedAt` change also makes HistoryPanel's list refetch.
 │   ├── useTabChatSync.ts    # multi-part: on activeClientId change, snapshots useChat.messages -> outgoing doc.chat, restores incoming (lazy-loads from disk if !chatLoaded)
+│   ├── useRestoreWithNote.ts # wraps store `restoreRevision` + injects a restore note into chat (so the AI has it in context + user sees it). Fetches the revisions list to get the version# + label/message, appends a UIMessage { role:"user", kind:"restore", text:"Restored to vN (\"label\")…" }. Active doc → setMessages; tab-switch race → snapshotChat into that doc. Used by BOTH restore call sites (HistoryPanel + Viewport).
 │   ├── useChatPersist.ts    # debounced (~600ms) disk persist of active doc's chat; flush-on-switch + beforeunload; PUT /api/parts/:id/messages
 │   └── chat-persist.ts      # serialize/deserialize UIMessage <-> StoredMessage (parts_json = full message JSON; extracts producedRevId from tool parts)
 ├── services/
@@ -270,8 +271,12 @@ exact same SPA as the web app — Electron just loads it.
   transport injects `partId: useDocumentsStore.getState().activeId` into the chat
   body (same getState-at-send pattern as mode/model/cadCode). `useModelSync`
   reads the new `partId`/`revId`, calls `adoptBuiltPart` + `refresh` +
-  `pushOpenDoc`. **The ephemeral `/api/mesh/:id` is unchanged** — it still serves
-  the *live* build; the revision's cached blob (`GET /api/parts/:id/meshes/:blobId`)
+  `pushOpenDoc`. **`adoptBuiltPart` returns early when the active doc already has
+  that partId** (the normal build-on-existing-part case) — so `useModelSync` also
+  patches `meta.headRevId`/`updatedAt` from `output.revId` in that branch;
+  without it the History "current" badge drifts one revision behind (the
+  frontend meta is never re-fetched for same-part builds). **The ephemeral
+  `/api/mesh/:id` is unchanged** — it still serves the *live* build; the revision's cached blob (`GET /api/parts/:id/meshes/:blobId`)
   serves the *reload/open* path. `useModelStore` is the active-doc projection
   (Viewport/CodeView read it unchanged); `useDocumentsStore` owns the partId +
   coordinates. **Chat is persisted per-part** (Phase 4: `/api/parts/:id/messages`,
@@ -322,6 +327,21 @@ exact same SPA as the web app — Electron just loads it.
   kernel required; FreeCAD/OpenCASCADE path noted for later). Gating: `Toolbar`
   refuses export with a toast when `!activeId` (unsaved tab) — a saved/built part
   always has stored code.
+- **Restore writes a note into the chat (so the AI has it in context).**
+  Restoring a revision (`useRestoreWithNote`, used by BOTH HistoryPanel + the
+  Viewport preview banner) appends a `UIMessage` with `role:"user"` + a `text`
+  part (`Restored to vN ("label")…`) + a custom `kind:"restore"` marker. The text
+  part reaches the model (sent as a user turn — the user is informing the
+  assistant of the revert); the `kind` field is message-level metadata, ignored
+  by `convertToModelMessages`. `ChatMessage` detects `kind==="restore"` and
+  renders a **centered rounded muted pill** with a `RotateCcw` icon (not a chat
+  bubble) so it reads as an event. The note persists + round-trips: it's saved by
+  the normal `useChatPersist` debounce, and `chat-persist.ts` stores the **full
+  message JSON** in `parts_json` (so `kind` survives reload). If a non-`user`
+  role were used it would NOT survive the round-trip — `serializeMessage`
+  collapses role to `user|assistant` and the server's message PUT filters roles
+  to those two, so a `system` role would be dropped; that's why the note is
+  `user`-role with a UI marker instead.
 - **No comments in code** unless explicitly requested (house style).
 
 ---
@@ -579,10 +599,12 @@ A flex child with `flex-1` defaults to `min-height: auto`, so it grows to fit
 content and pushes siblings (e.g. the chat composer) off-screen instead of
 scrolling. **Add `min-h-0` (and usually `overflow-hidden`)** to any flex item
 that should scroll internally. This bit the chat panel — the message list is now
-a plain `<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">`
-(native scroll, not Radix `ScrollArea`, because Radix's overlay scrollbar was
-clipping right-aligned message bubbles / cutting content off on the right; native
-scroll reserves its own gutter). Still needs a height-constrained parent to scroll.
+  a plain `<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">`
+  (native scroll, not Radix `ScrollArea`, because Radix's overlay scrollbar was
+  clipping right-aligned message bubbles / cutting content off on the right; native
+  scroll reserves its own gutter). The History tab uses this **same** pattern (it
+  initially used `ScrollArea` and the right edge was cut off). Still needs a
+  height-constrained parent to scroll.
 
 ### 5. react-resizable-panels v4 API differs from docs/older versions
 shadcn's `resizable` now installs **v4**, which is NOT API-compatible with v2/v3:
@@ -763,7 +785,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
 | Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.cadzero/settings.json` |
 | Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
-| Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh); read-only preview disables build |
+| Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
 | Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json`, linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist + flush-on-switch + beforeunload |
 | Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |

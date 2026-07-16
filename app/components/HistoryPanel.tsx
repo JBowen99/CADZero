@@ -3,20 +3,17 @@ import {
   ArrowLeft,
   Bookmark,
   Flag,
-  GitBranch,
   History,
-  MessageSquare,
   RotateCcw,
-  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { revisionsUrl } from "~/lib/api";
-import type { RevisionDTO, RevisionSource } from "~/types";
+import type { RevisionDTO } from "~/types";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -27,14 +24,6 @@ function timeAgo(ts: number): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   return `${d}d ago`;
-}
-
-function SourceIcon({ source }: { source: RevisionSource }) {
-  const cls = "size-3.5 shrink-0 text-muted-foreground";
-  if (source === "fork") return <GitBranch className={cls} />;
-  if (source === "manual") return <Flag className={cls} />;
-  if (source === "import") return <Upload className={cls} />;
-  return <MessageSquare className={cls} />;
 }
 
 function EmptyState({
@@ -66,7 +55,7 @@ export function HistoryPanel() {
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const previewRevision = useDocumentsStore((s) => s.previewRevision);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
-  const restoreRevision = useDocumentsStore((s) => s.restoreRevision);
+  const restoreWithNote = useRestoreWithNote();
   const checkpoint = useDocumentsStore((s) => s.checkpoint);
 
   const [revs, setRevs] = useState<RevisionDTO[]>([]);
@@ -111,7 +100,7 @@ export function HistoryPanel() {
       )
     )
       return;
-    await restoreRevision(revId);
+    await restoreWithNote(revId);
     toast.success("Restored — continuing from this version");
   };
 
@@ -173,9 +162,10 @@ export function HistoryPanel() {
         </Button>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <ol className="flex flex-col py-1">
-          {revs.map((rev) => {
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <ol className="flex min-w-0 flex-col py-1">
+          {revs.map((rev, index) => {
+            const version = revs.length - index;
             const isHead = rev.revId === headRevId;
             const isPreviewing = rev.revId === previewingRevId;
             return (
@@ -190,7 +180,9 @@ export function HistoryPanel() {
                     void (isHead ? exitPreview() : previewRevision(rev.revId))
                   }
                 >
-                  <SourceIcon source={rev.source} />
+                  <span className="mt-px shrink-0 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                    v{version}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span
@@ -240,7 +232,7 @@ export function HistoryPanel() {
             );
           })}
         </ol>
-      </ScrollArea>
+      </div>
 
       {previewingRevId && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-t bg-accent/30 px-3 py-2">

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import type { UIMessage } from "ai";
 import { CodeBlock } from "~/components/CodeBlock";
 import { cn } from "~/lib/utils";
@@ -72,6 +72,8 @@ interface ChatMessageProps {
 
 function ChatMessageBase({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const isRestoreEvent =
+    (message as { kind?: string }).kind === "restore";
   const parts = message.parts as unknown as Array<
     | { type: "text"; text: string }
     | BuildPart
@@ -81,6 +83,18 @@ function ChatMessageBase({ message }: ChatMessageProps) {
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
     .join("");
+
+  if (isRestoreEvent) {
+    return (
+      <div className="flex w-full justify-center px-4 py-1.5">
+        <div className="flex max-w-[85%] items-center gap-1.5 rounded-lg border bg-muted/50 px-3 py-1 text-[11px] text-muted-foreground">
+          <RotateCcw className="size-3 shrink-0" />
+          <span className="break-words">{text}</span>
+        </div>
+      </div>
+    );
+  }
+
   const buildParts = parts.filter(
     (p): p is BuildPart => p.type === "tool-update_model",
   );

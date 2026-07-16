@@ -102,8 +102,21 @@ export function useModelSync() {
           language,
         });
       });
-      if (output.partId) {
-        void useDocumentsStore.getState().adoptBuiltPart(output.partId);
+      const docs = useDocumentsStore.getState();
+      const active = docs.openDocs.find(
+        (d) => d.clientId === docs.activeClientId,
+      );
+      if (output.partId && active?.partId !== output.partId) {
+        void docs.adoptBuiltPart(output.partId);
+        void useWorkspaceStore.getState().refresh();
+      } else if (output.revId && active?.meta) {
+        docs.patchActiveDoc({
+          meta: {
+            ...active.meta,
+            headRevId: output.revId,
+            updatedAt: Date.now(),
+          },
+        });
         void useWorkspaceStore.getState().refresh();
       }
     }

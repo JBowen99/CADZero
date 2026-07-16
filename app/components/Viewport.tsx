@@ -20,6 +20,7 @@ import {
 } from "~/components/ui/tooltip";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
 
 interface FitRef {
@@ -294,7 +295,7 @@ export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
-  const restoreRevision = useDocumentsStore((s) => s.restoreRevision);
+  const restoreWithNote = useRestoreWithNote();
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [processing, setProcessing] = useState(false);
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
@@ -418,7 +419,7 @@ export function Viewport() {
             type="button"
             size="sm"
             className="h-6 gap-1 px-2 text-[11px]"
-            onClick={() => void restoreRevision(previewingRevId)}
+            onClick={() => void restoreWithNote(previewingRevId)}
           >
             <RotateCcw className="size-3" />
             Restore
