@@ -9,7 +9,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 export type ChatMode = "plan" | "chat" | "build";
 
 export interface TriangleMesh {
-  positions: number[];
+  positions: Float32Array;
   triangleCount: number;
 }
 

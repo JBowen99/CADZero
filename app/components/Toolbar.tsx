@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import type { BackendName, ExportFormat } from "~/types";
-import { useChatContext } from "~/lib/ai-chat";
+import { useChatActions, useChatHasMessages } from "~/lib/ai-chat";
 import { useModelStore } from "~/store/useModelStore";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
@@ -37,8 +37,8 @@ export function Toolbar() {
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
   const mesh = useModelStore((s) => s.mesh);
-  const { messages, setMessages } = useChatContext();
-  const hasMessages = messages.length > 0;
+  const setMessages = useChatActions().setMessages;
+  const hasMessages = useChatHasMessages();
   const clear = () => setMessages([]);
 
   const handleBackendChange = (value: string) => {

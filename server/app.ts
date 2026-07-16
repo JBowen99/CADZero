@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  stepCountIs,
   streamText,
   toUIMessageStream,
   tool,
@@ -19,6 +20,8 @@ import { storeMesh, getMesh } from "./mesh-store";
 import { listAvailableModels, resolveModelId } from "./models";
 
 const openrouter = createOpenRouter({ apiKey: config.openrouterApiKey });
+
+const MAX_TRIANGLES = 500_000;
 
 export const app = new Hono();
 
@@ -50,7 +53,12 @@ app.get("/api/capabilities", async (c) => {
 app.get("/api/mesh/:id", (c) => {
   const mesh = getMesh(c.req.param("id"));
   if (!mesh) return c.json({ error: "mesh not found" }, 404);
-  return c.json(mesh);
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(mesh.triangleCount);
+  const body = Buffer.from(Float32Array.from(mesh.positions).buffer);
+  return c.body(Buffer.concat([header, body]), 200, {
+    "Content-Type": "application/octet-stream",
+  });
 });
 
 const updateModelTool = tool({
@@ -70,12 +78,21 @@ const updateModelTool = tool({
     if (!rendered.ok || !rendered.stl) {
       return {
         success: false,
-        message: "OpenSCAD failed to render the model.",
+        message:
+          "OpenSCAD failed to render the model. Read the stderr below — it names the line number of the problem. Fix that issue in the full script and call update_model again.",
         stderr: rendered.stderr || "Unknown render error.",
         durationMs: rendered.durationMs,
       };
     }
     const mesh = parseStl(rendered.stl);
+    if (mesh.triangleCount > MAX_TRIANGLES) {
+      return {
+        success: false,
+        message: `The model is ${mesh.triangleCount.toLocaleString()} triangles — too dense to handle smoothly. Reduce $fn, simplify the geometry, or use fewer repeated features, then call update_model again.`,
+        stderr: "",
+        durationMs: rendered.durationMs,
+      };
+    }
     const meshId = storeMesh(mesh);
     return {
       success: true,
@@ -110,6 +127,7 @@ app.post("/api/chat", async (c) => {
     instructions: buildInstructions(safeMode, cadCode ?? null, safeLanguage),
     messages: await convertToModelMessages(messages),
     tools: { update_model: updateModelTool },
+    stopWhen: stepCountIs(4),
   });
 
   return createUIMessageStreamResponse({

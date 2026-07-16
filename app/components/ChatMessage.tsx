@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { AlertCircle, Bot, CheckCircle2, Loader2, User } from "lucide-react";
 import type { UIMessage } from "ai";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
@@ -15,6 +16,13 @@ interface BuildPart {
     meshId?: string;
     triangleCount?: number;
   };
+}
+
+interface ImagePart {
+  type: "file";
+  mediaType: string;
+  url: string;
+  filename?: string;
 }
 
 function BuildCard({ part }: { part: BuildPart }) {
@@ -63,11 +71,12 @@ interface ChatMessageProps {
   message: UIMessage;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+function ChatMessageBase({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
   const parts = message.parts as unknown as Array<
     | { type: "text"; text: string }
     | BuildPart
+    | ImagePart
   >;
   const text = parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -75,6 +84,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
     .join("");
   const buildParts = parts.filter(
     (p): p is BuildPart => p.type === "tool-update_model",
+  );
+  const imageParts = parts.filter(
+    (p): p is ImagePart =>
+      p.type === "file" && p.mediaType?.startsWith("image/"),
   );
 
   return (
@@ -113,6 +126,23 @@ export function ChatMessage({ message }: ChatMessageProps) {
             {text}
           </div>
         )}
+        {imageParts.length > 0 && (
+          <div
+            className={cn(
+              "flex max-w-[85%] flex-wrap gap-2",
+              isUser && "justify-end",
+            )}
+          >
+            {imageParts.map((img, i) => (
+              <img
+                key={i}
+                src={img.url}
+                alt={img.filename ?? "attached image"}
+                className="max-h-52 max-w-[220px] rounded-lg border object-contain"
+              />
+            ))}
+          </div>
+        )}
         {buildParts.map((part, i) => (
           <BuildCard key={i} part={part} />
         ))}
@@ -120,3 +150,5 @@ export function ChatMessage({ message }: ChatMessageProps) {
     </div>
   );
 }
+
+export const ChatMessage = memo(ChatMessageBase);

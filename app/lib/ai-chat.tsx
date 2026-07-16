@@ -7,9 +7,25 @@ import { useModelStore } from "~/store/useModelStore";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
 
-type ChatContextValue = ReturnType<typeof useChat>;
+type ChatInstance = ReturnType<typeof useChat>;
+type ChatStatus = ChatInstance["status"];
 
-const ChatContext = createContext<ChatContextValue | null>(null);
+interface ChatActions {
+  sendMessage: ChatInstance["sendMessage"];
+  stop: ChatInstance["stop"];
+  regenerate: ChatInstance["regenerate"];
+  setMessages: ChatInstance["setMessages"];
+}
+
+interface ChatState {
+  messages: ChatInstance["messages"];
+  error: ChatInstance["error"];
+}
+
+const ActionsContext = createContext<ChatActions | null>(null);
+const StatusContext = createContext<ChatStatus | null>(null);
+const StateContext = createContext<ChatState | null>(null);
+const HasMessagesContext = createContext<boolean>(false);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const transport = useMemo(
@@ -29,20 +45,77 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }),
     [],
   );
-  const chat = useChat({ transport });
+  const chat = useChat({ transport, throttle: 50 });
 
-  return <ChatContext.Provider value={chat}>{children}</ChatContext.Provider>;
+  const actions = useMemo<ChatActions>(
+    () => ({
+      sendMessage: chat.sendMessage,
+      stop: chat.stop,
+      regenerate: chat.regenerate,
+      setMessages: chat.setMessages,
+    }),
+    [chat.sendMessage, chat.stop, chat.regenerate, chat.setMessages],
+  );
+  const state = useMemo<ChatState>(
+    () => ({ messages: chat.messages, error: chat.error }),
+    [chat.messages, chat.error],
+  );
+  const hasMessages = chat.messages.length > 0;
+
+  return (
+    <ActionsContext.Provider value={actions}>
+      <StatusContext.Provider value={chat.status}>
+        <StateContext.Provider value={state}>
+          <HasMessagesContext.Provider value={hasMessages}>
+            {children}
+          </HasMessagesContext.Provider>
+        </StateContext.Provider>
+      </StatusContext.Provider>
+    </ActionsContext.Provider>
+  );
 }
 
-export function useChatContext(): ChatContextValue {
-  const value = useContext(ChatContext);
+function useActions(): ChatActions {
+  const value = useContext(ActionsContext);
   if (!value) {
-    throw new Error("useChatContext must be used within a ChatProvider");
+    throw new Error("Chat hooks must be used within a ChatProvider");
   }
   return value;
 }
 
-export const isChatBusy = (status: ChatContextValue["status"]) =>
+function useStateValue(): ChatState {
+  const value = useContext(StateContext);
+  if (!value) {
+    throw new Error("Chat hooks must be used within a ChatProvider");
+  }
+  return value;
+}
+
+export function useChatActions(): ChatActions {
+  return useActions();
+}
+
+export function useChatStatus(): ChatStatus {
+  const value = useContext(StatusContext);
+  if (value === null) {
+    throw new Error("Chat hooks must be used within a ChatProvider");
+  }
+  return value;
+}
+
+export function useChatState(): ChatState {
+  return useStateValue();
+}
+
+export function useChatMessages() {
+  return useStateValue().messages;
+}
+
+export function useChatHasMessages(): boolean {
+  return useContext(HasMessagesContext);
+}
+
+export const isChatBusy = (status: ChatStatus) =>
   status === "submitted" || status === "streaming";
 
 export function describeChatError(

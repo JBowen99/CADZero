@@ -3,6 +3,7 @@ import { create } from "zustand";
 export interface AvailableModel {
   id: string;
   name: string;
+  supportsVision?: boolean;
 }
 
 interface SettingsState {

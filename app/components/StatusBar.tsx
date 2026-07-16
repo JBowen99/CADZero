@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle, Box, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "~/types";
-import { isChatBusy, useChatContext } from "~/lib/ai-chat";
+import { isChatBusy, useChatStatus } from "~/lib/ai-chat";
 import { useConnectionStore } from "~/store/useConnectionStore";
 import { useModelStore } from "~/store/useModelStore";
 import { capabilitiesUrl } from "~/lib/api";
@@ -21,7 +21,7 @@ type Capability =
 export function StatusBar() {
   const status = useConnectionStore((s) => s.status);
   const backend = useModelStore((s) => s.backend);
-  const chatStatus = useChatContext().status;
+  const chatStatus = useChatStatus();
   const busy = isChatBusy(chatStatus);
   const mesh = useModelStore((s) => s.mesh);
   const isBuilding = useModelStore((s) => s.isBuilding);

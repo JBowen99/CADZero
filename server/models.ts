@@ -11,15 +11,24 @@ interface ModelsConfig {
 export interface AvailableModel {
   id: string;
   name: string;
+  supportsVision: boolean;
 }
 
 interface OpenRouterModel {
   id: string;
   name?: string;
+  architecture?: {
+    input_modalities?: string[];
+  };
 }
 
 interface OpenRouterModelsResponse {
   data?: OpenRouterModel[];
+}
+
+interface OpenRouterModelInfo {
+  name: string;
+  supportsVision: boolean;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,7 +52,7 @@ async function loadConfig(): Promise<ModelsConfig> {
   return parsed;
 }
 
-async function fetchOpenRouterModelNames(): Promise<Map<string, string>> {
+async function fetchOpenRouterModels(): Promise<Map<string, OpenRouterModelInfo>> {
   if (!config.openrouterApiKey) return new Map();
   const res = await fetch("https://openrouter.ai/api/v1/models", {
     headers: { Authorization: `Bearer ${config.openrouterApiKey}` },
@@ -52,9 +61,13 @@ async function fetchOpenRouterModelNames(): Promise<Map<string, string>> {
     throw new Error(`OpenRouter /models returned ${res.status}`);
   }
   const json = (await res.json()) as OpenRouterModelsResponse;
-  const map = new Map<string, string>();
+  const map = new Map<string, OpenRouterModelInfo>();
   for (const m of json.data ?? []) {
-    map.set(m.id, m.name ?? m.id);
+    const modalities = m.architecture?.input_modalities ?? [];
+    map.set(m.id, {
+      name: m.name ?? m.id,
+      supportsVision: modalities.some((mod) => mod === "image"),
+    });
   }
   return map;
 }
@@ -66,12 +79,19 @@ export async function listAvailableModels(): Promise<AvailableModel[]> {
   inflight = (async () => {
     const [cfg, known] = await Promise.all([
       loadConfig(),
-      fetchOpenRouterModelNames().catch(() => new Map<string, string>()),
+      fetchOpenRouterModels().catch(() => new Map<string, OpenRouterModelInfo>()),
     ]);
     const knownIds = new Set(known.keys());
     const models: AvailableModel[] = cfg.models
       .filter((id) => knownIds.size === 0 || knownIds.has(id))
-      .map((id) => ({ id, name: known.get(id) ?? id }));
+      .map((id) => {
+        const info = known.get(id);
+        return {
+          id,
+          name: info?.name ?? id,
+          supportsVision: info?.supportsVision ?? false,
+        };
+      });
     cache = { at: Date.now(), models };
     inflight = null;
     return models;

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowUp, Loader2, MessageSquare, RotateCcw, Square, X } from "lucide-react";
+import type { FileUIPart } from "ai";
+import { toast } from "sonner";
+import { AlertTriangle, ArrowUp, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -12,11 +14,12 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { ChatMessage } from "./ChatMessage";
-import { describeChatError, isChatBusy, useChatContext } from "~/lib/ai-chat";
+import { describeChatError, isChatBusy, useChatActions, useChatState, useChatStatus } from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
 import { modelsUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
+import { buildImageParts, extractImageFiles, IMAGE_LIMITS } from "~/lib/images";
 import type { ChatMode } from "~/types";
 
 const MODES: { value: ChatMode; label: string }[] = [
@@ -68,8 +71,9 @@ function EmptyChat({ onPick }: { onPick: (prompt: string) => void }) {
 }
 
 export function ChatPanel() {
-  const { messages, sendMessage, status, stop, error, regenerate } =
-    useChatContext();
+  const { messages, error } = useChatState();
+  const { sendMessage, stop, regenerate } = useChatActions();
+  const status = useChatStatus();
   const busy = isChatBusy(status);
   const errorInfo = describeChatError(error);
   const mode = useChatModeStore((s) => s.mode);
@@ -81,7 +85,13 @@ export function ChatPanel() {
   const [dismissed, setDismissed] = useState(false);
   const [models, setModels] = useState<AvailableModel[]>([]);
   const [modelsError, setModelsError] = useState(false);
+  const [images, setImages] = useState<FileUIPart[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const visionModel =
+    models.find((m) => m.id === model)?.supportsVision ?? false;
 
   useEffect(() => {
     let cancelled = false;
@@ -104,9 +114,10 @@ export function ChatPanel() {
     };
   }, [setModel]);
 
+  const messageCount = messages.length;
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages, status]);
+    bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+  }, [messageCount, status]);
 
   useEffect(() => {
     setDismissed(false);
@@ -114,8 +125,17 @@ export function ChatPanel() {
 
   const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed || busy) return;
-    sendMessage({ text: trimmed });
+    if (!trimmed && images.length === 0) return;
+    if (busy) return;
+    if (trimmed) {
+      sendMessage({
+        text: trimmed,
+        files: images.length > 0 ? images : undefined,
+      });
+    } else {
+      sendMessage({ files: images });
+    }
+    setImages([]);
     setValue("");
   };
 
@@ -124,6 +144,68 @@ export function ChatPanel() {
       e.preventDefault();
       submit();
     }
+  };
+
+  const addFiles = async (files: File[]) => {
+    if (!visionModel) {
+      toast.error("The selected model can't read images.", {
+        description: "Switch to a vision-capable model to attach images.",
+      });
+      return;
+    }
+    const remaining = IMAGE_LIMITS.maxCount - images.length;
+    if (remaining <= 0) {
+      toast.error(`You can attach at most ${IMAGE_LIMITS.maxCount} images.`);
+      return;
+    }
+    const { added, rejected } = await buildImageParts(files, remaining);
+    if (added.length > 0) setImages((prev) => [...prev, ...added]);
+    for (const r of rejected) {
+      toast.error(`Skipped "${r.file.name}"`, { description: r.reason });
+    }
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = extractImageFiles(e.clipboardData?.items);
+    if (files.length > 0) {
+      e.preventDefault();
+      void addFiles(files);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragActive(false);
+    const files = extractImageFiles(e.dataTransfer?.items ?? e.dataTransfer?.files);
+    if (files.length > 0) void addFiles(files);
+  };
+
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!visionModel) return;
+    if (Array.from(e.dataTransfer?.types ?? []).includes("Files")) {
+      e.preventDefault();
+      setDragActive(true);
+    }
+  };
+
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (e.currentTarget === e.target) setDragActive(false);
+  };
+
+  const openFilePicker = () => {
+    if (!visionModel) {
+      toast.error("The selected model can't read images.", {
+        description: "Switch to a vision-capable model to attach images.",
+      });
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = extractImageFiles(e.target.files);
+    if (files.length > 0) void addFiles(files);
+    e.target.value = "";
   };
 
   return (
@@ -184,34 +266,66 @@ export function ChatPanel() {
         </div>
       )}
 
-      <div className="shrink-0 p-3">
-        <div className="relative">
-          <Textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={PLACEHOLDER[mode]}
-            className="min-h-[72px] max-h-[200px] resize-none pr-10 text-sm"
-          />
-          <Button
-            type="button"
-            size="icon-sm"
-            className="absolute bottom-2 right-2"
-            onClick={busy ? stop : submit}
-            disabled={!busy && !value.trim()}
-            aria-label={busy ? "Stop generating" : "Send prompt"}
-          >
-            {busy ? (
-              status === "streaming" ? (
-                <Square className="size-3.5" />
-              ) : (
-                <Loader2 className="size-4 animate-spin" />
-              )
-            ) : (
-              <ArrowUp className="size-4" />
-            )}
-          </Button>
-        </div>
+      <div
+        className={cn(
+          "relative shrink-0 p-3",
+          dragActive && "ring-2 ring-inset ring-primary/60",
+        )}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+      >
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary/60 bg-background/80 text-xs font-medium text-primary">
+            Drop images to attach
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={IMAGE_LIMITS.accept}
+          multiple
+          className="hidden"
+          onChange={onFileChange}
+        />
+        <Textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          placeholder={
+            visionModel
+              ? PLACEHOLDER[mode]
+              : PLACEHOLDER[mode] + " (current model can't read images)"
+          }
+          className="min-h-[72px] max-h-[200px] resize-none text-sm"
+        />
+        {images.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {images.map((img, i) => (
+              <div
+                key={i}
+                className="group relative size-14 overflow-hidden rounded-md border"
+              >
+                <img
+                  src={img.url}
+                  alt={img.filename ?? "attached image"}
+                  className="size-full object-cover"
+                />
+                <button
+                  type="button"
+                  className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={() =>
+                    setImages((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  aria-label="Remove image"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mt-2 flex items-center gap-2">
           <Select value={mode} onValueChange={(v) => setMode(v as ChatMode)}>
             <SelectTrigger size="sm" className="h-7 gap-1 px-2 text-xs">
@@ -241,11 +355,54 @@ export function ChatPanel() {
             <SelectContent>
               {models.map((m) => (
                 <SelectItem key={m.id} value={m.id} className="text-xs">
+                  <ScanEye
+                    className={cn(
+                      "size-3 shrink-0",
+                      m.supportsVision
+                        ? "text-primary"
+                        : "text-muted-foreground/30",
+                    )}
+                  />
                   <span className="truncate">{m.name}</span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            onClick={openFilePicker}
+            disabled={!visionModel}
+            aria-label="Attach images"
+            title={
+              visionModel
+                ? "Attach images"
+                : "Selected model can't read images"
+            }
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon-sm"
+            className="h-7 w-7 shrink-0"
+            onClick={busy ? stop : submit}
+            disabled={!busy && !value.trim() && images.length === 0}
+            aria-label={busy ? "Stop generating" : "Send prompt"}
+          >
+            {busy ? (
+              status === "streaming" ? (
+                <Square className="size-3.5" />
+              ) : (
+                <Loader2 className="size-4 animate-spin" />
+              )
+            ) : (
+              <ArrowUp className="size-4" />
+            )}
+          </Button>
         </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground">
           ⌘/Ctrl + Enter to send

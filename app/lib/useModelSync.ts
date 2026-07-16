@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { UIMessage } from "ai";
 import type { BackendName, TriangleMesh } from "~/types";
-import { useChatContext } from "~/lib/ai-chat";
+import { useChatState } from "~/lib/ai-chat";
 import { meshUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
 
@@ -41,11 +41,15 @@ function collectBuilds(parts: UIMessage["parts"] | undefined): BuildPart[] {
 async function fetchMesh(id: string): Promise<TriangleMesh> {
   const res = await fetch(meshUrl(id));
   if (!res.ok) throw new Error(`mesh fetch failed: ${res.status}`);
-  return (await res.json()) as TriangleMesh;
+  const ab = await res.arrayBuffer();
+  if (ab.byteLength < 4) throw new Error("mesh response too small");
+  const triangleCount = new DataView(ab).getUint32(0, true);
+  const positions = new Float32Array(ab, 4);
+  return { positions, triangleCount };
 }
 
 export function useModelSync() {
-  const { messages } = useChatContext();
+  const { messages } = useChatState();
   const syncedRef = useRef<string | null>(null);
 
   useEffect(() => {

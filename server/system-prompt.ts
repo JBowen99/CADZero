@@ -16,7 +16,9 @@ Supported OpenSCAD vocabulary (keep models within this set):
 - Use parametric variables (e.g. w=100; thickness=8;) at the top of the script so sizes are easy to change.
 
 How holes work: subtract a taller cylinder from the body inside difference() { body; cylinder(...); }.
-Keep $fn modest (32-64) to keep meshes fast. Output must be complete, valid, self-contained OpenSCAD.`;
+Keep $fn modest (32-64) to keep meshes fast. Output must be complete, valid, self-contained OpenSCAD.
+
+Attached images: when the user attaches an image, treat it as a visual reference (a sketch, photo, screenshot, or dimensioned drawing). Read shapes, proportions, feature counts, and any visible dimensions from it, and use them alongside the text prompt to guide the model. State any assumption you had to make because the image was ambiguous.`;
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
   plan: `You are in PLAN mode.
@@ -26,8 +28,8 @@ Help the user define the part before building: ask focused clarifying questions 
 Do NOT call the update_model tool — no code is executed in this mode.
 Answer the user's questions about the current model, OpenSCAD, or CAD concepts. Be concise and practical. You may show short illustrative snippets in fenced \`\`\`openscad blocks to explain something, but do not attempt to change the active model from this mode.`,
   build: `You are in BUILD mode.
-Update the model by calling the update_model tool exactly once.
-The tool input must contain the COMPLETE OpenSCAD script (never a diff or fragment), language set to "openscad", and a short user-facing "message" describing what changed.
+Update the model by calling the update_model tool with the COMPLETE OpenSCAD script (never a diff or fragment), language set to "openscad", and a short user-facing "message" describing what changed.
+If the tool returns success, stop — do not call it again. If it returns an error (e.g. a parser/syntax error), read the stderr, fix the reported line in the full script, and call update_model again with the corrected complete script. Retry at most a few times; if you cannot fix it, stop and briefly explain the error to the user.
 Always edit the existing model's code (provided below) rather than starting over, unless the user explicitly asks for a new part. Keep all prior parameters unless the user asked to change them.`,
 };
 
