@@ -165,7 +165,9 @@ export function Toolbar() {
 
   return (
     <header className="app-drag flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
-      <span className="font-semibold tracking-tight">CADZero</span>
+      <span className="font-semibold tracking-tight">
+        CAD<span className="text-primary">Zero</span>
+      </span>
 
       <Tooltip>
         <TooltipTrigger asChild>

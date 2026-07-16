@@ -31,7 +31,7 @@ export function TabBar() {
             className={cn(
               "group flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs transition-colors",
               active
-                ? "border-primary/40 bg-accent text-accent-foreground"
+                ? "border-primary bg-primary/10 text-primary"
                 : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}
           >
@@ -45,11 +45,11 @@ export function TabBar() {
               {doc.saveState === "saving" ? (
                 <Loader2 className="size-3 shrink-0 animate-spin" />
               ) : doc.saveState === "unsaved" ? (
-                <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />
+                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
               ) : null}
               <span className="max-w-[150px] truncate">{label}</span>
               {doc.previewingRevId && (
-                <History className="size-3 shrink-0 text-amber-500" />
+                <History className="size-3 shrink-0 text-primary" />
               )}
             </button>
             <button

@@ -148,6 +148,7 @@ function Scene({
   fitRef,
   frameRef,
   gridColors,
+  edgeColor,
   interactingRef,
   viewMode,
   showGrid,
@@ -158,6 +159,7 @@ function Scene({
   fitRef: FitRef;
   frameRef: FitRef;
   gridColors: GridColors | null;
+  edgeColor: string | null;
   interactingRef: InteractionRef;
   viewMode: ViewMode;
   showGrid: boolean;
@@ -200,7 +202,7 @@ function Scene({
               {viewMode !== "wireframe" && (
                 <mesh geometry={geometry} castShadow receiveShadow>
                   <meshStandardMaterial
-                    color="#a5b4fc"
+                    color="#d4d4d8"
                     metalness={0.1}
                     roughness={0.5}
                     polygonOffset={viewMode === "solid"}
@@ -210,11 +212,9 @@ function Scene({
                 </mesh>
               )}
               {edges && (
-                <lineSegments geometry={edges}>
-                  <lineBasicMaterial
-                    color={viewMode === "wireframe" ? "#6366f1" : "#4338ca"}
-                  />
-                </lineSegments>
+                  <lineSegments geometry={edges}>
+                    <lineBasicMaterial color={edgeColor ?? "#eab308"} />
+                  </lineSegments>
               )}
             </group>
           )}
@@ -308,12 +308,14 @@ export function Viewport() {
 
   const { resolvedTheme } = useTheme();
   const [gridColors, setGridColors] = useState<GridColors | null>(null);
+  const [edgeColor, setEdgeColor] = useState<string | null>(null);
 
   useEffect(() => {
     setGridColors({
       cell: resolveTokenColor("var(--color-border)") ?? "#9ca3af",
       section: resolveTokenColor("var(--color-muted-foreground)") ?? "#737373",
     });
+    setEdgeColor(resolveTokenColor("var(--color-primary)"));
   }, [resolvedTheme]);
 
   useEffect(() => {
@@ -382,6 +384,7 @@ export function Viewport() {
           fitRef={fitRef}
           frameRef={frameRef}
           gridColors={gridColors}
+          edgeColor={edgeColor}
           interactingRef={interactingRef}
           viewMode={viewMode}
           showGrid={showGrid}
@@ -398,7 +401,7 @@ export function Viewport() {
       )}
       {previewingRevId && (
         <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs shadow-sm">
-          <span className="font-medium text-amber-600 dark:text-amber-400">
+          <span className="font-medium text-primary">
             Viewing older version
           </span>
           <Button
@@ -437,7 +440,7 @@ export function Viewport() {
                       size="icon-sm"
                       className={cn(
                         "h-7 w-7",
-                        active && "bg-accent text-accent-foreground",
+                        active && "bg-primary text-primary-foreground",
                       )}
                       onClick={() => setViewMode(m.value)}
                       aria-label={m.label}
@@ -463,7 +466,7 @@ export function Viewport() {
                 className={cn(
                   "h-7 w-7",
                   showGrid
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground",
                 )}
                 onClick={() => setShowGrid((v) => !v)}
@@ -486,7 +489,7 @@ export function Viewport() {
                 className={cn(
                   "h-7 w-7",
                   showAxes
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground",
                 )}
                 onClick={() => setShowAxes((v) => !v)}
@@ -509,7 +512,7 @@ export function Viewport() {
                 className={cn(
                   "h-7 w-7",
                   showGizmo
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground",
                 )}
                 onClick={() => setShowGizmo((v) => !v)}

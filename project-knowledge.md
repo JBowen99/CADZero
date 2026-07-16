@@ -488,6 +488,22 @@ successful render.
   - **`radix-ui`** (the umbrella package) — used by button/tooltip/etc.
 - `app/app.css` holds the shadcn OKLCH design tokens (`:root` + `.dark`) and the
   `@theme inline` mapping. Don't delete these.
+- **Brand accent = yellow `--primary`, tuned per theme.** The stock shadcn
+  "neutral" palette is fully grayscale by default; we recolored `--primary`
+  (and `--ring` / `--sidebar-primary`) to a brand yellow in `app/app.css` —
+  deep gold `oklch(0.60 0.14 75)` in light (legible as text on white AND takes
+  white text as a fill) and bright yellow `oklch(0.82 0.16 85)` in dark (mirrors
+  `chart-4`; near-black text on top). `--primary-foreground` stays white (light)
+  / near-black (dark). `--accent` is intentionally LEFT neutral — it's the calm
+  hover/surface fill; `primary` (yellow) is reserved for branded/selected/CTA
+  states. So the selected viewport toggles, active document tabs (`TabBar`), the
+  active side-panel tab (`SidePanel`), the **CAD`Zero`** wordmark (`text-primary`
+  on "Zero" in `Toolbar`), the Send button, user chat bubbles, and focus rings
+  all read as the brand color automatically through the token. **Don't
+  reintroduce hardcoded Tailwind palette colors** (e.g. `bg-amber-500`) for these
+  — they bypass the theme tokens and won't react to light/dark. Nudge the yellow
+  brightness at `app/app.css` `:root` `--primary` (light) and `.dark` `--primary`
+  (dark).
 
 ---
 
@@ -679,7 +695,13 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
   `bg-background` (theme-correct CSS) so the DOM shows through. Grid line colors
   are resolved at runtime via a DOM probe (`getComputedStyle` → canvas-2D
   normalization → hex) in `resolveTokenColor()`, recomputed on theme change.
-  Meshes use plain hex strings.
+  **Mesh surface** uses a single plain neutral hex (`#d4d4d8` — works on both
+  light & dark backgrounds); **edges** are resolved the same DOM-probe way as the
+  grid — `resolveTokenColor("var(--color-primary)")` (the brand yellow per theme),
+  threaded as an `edgeColor` prop into `Scene` and recomputed on theme change
+  (gold in light, bright yellow in dark; same color for wireframe + solid edges,
+  fallback `#eab308`). Axis (RGB) + gizmo colors stay plain hex (scene
+  constants, not UI tokens).
 - **Camera framing is interaction-gated.** `FitController` (a child of `<Bounds>`,
   calls `useBounds()`) auto-frames a finished mesh ONLY when the user is not
   controlling the camera (`OrbitControls` `onStart`/`onEnd` → `interactingRef`).
