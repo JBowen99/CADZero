@@ -3,16 +3,21 @@ import { Canvas } from "@react-three/fiber";
 import {
   Bounds,
   GizmoHelper,
-  GizmoViewport,
   Grid,
   OrbitControls,
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { Aperture, ArrowLeft, Box, Compass, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Box, Compass, Disc, Grid2x2, Grid3x3, Maximize2, RotateCcw } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { RubiksGizmo } from "~/components/RubiksGizmo";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { buildMesh } from "~/lib/mesh-worker-client";
@@ -33,32 +38,49 @@ interface GridColors {
 type ViewMode = "shaded" | "solid" | "wireframe";
 
 const VIEW_MODES: { value: ViewMode; label: string; icon: typeof Box }[] = [
-  { value: "shaded", label: "Shaded", icon: Aperture },
+  { value: "shaded", label: "Shaded", icon: Disc },
   { value: "solid", label: "Solid", icon: Box },
   { value: "wireframe", label: "Wireframe", icon: Grid3x3 },
 ];
 
+// Front-right-top viewing direction (matches the default camera at [140,110,160]).
+const FRONT_RIGHT_TOP_DIR = new THREE.Vector3(140, 110, 160).normalize();
+
 function FitController({
   geometry,
   fitRef,
+  frameRef,
   interactingRef,
 }: {
   geometry: THREE.BufferGeometry | null;
   fitRef: FitRef;
+  frameRef: FitRef;
   interactingRef: InteractionRef;
 }) {
   const api = useBounds();
 
+  // Fit while preserving the current camera angle (used for auto-fit on new mesh).
   const doFit = () => {
     api.refresh();
     api.reset().fit();
     api.clip();
   };
 
+  // Reorient to the front-right-top corner, then fit (used by the Frame button).
+  const doFrame = () => {
+    api.refresh();
+    const { center, distance } = api.getSize();
+    api.moveTo(center.clone().addScaledVector(FRONT_RIGHT_TOP_DIR, distance));
+    api.lookAt({ target: center });
+    api.clip();
+  };
+
   useEffect(() => {
     fitRef.current = doFit;
+    frameRef.current = doFrame;
     return () => {
       if (fitRef.current === doFit) fitRef.current = null;
+      if (frameRef.current === doFrame) frameRef.current = null;
     };
   });
 
@@ -74,6 +96,7 @@ function FitController({
 function Scene({
   geometry,
   fitRef,
+  frameRef,
   gridColors,
   interactingRef,
   viewMode,
@@ -82,6 +105,7 @@ function Scene({
 }: {
   geometry: THREE.BufferGeometry | null;
   fitRef: FitRef;
+  frameRef: FitRef;
   gridColors: GridColors | null;
   interactingRef: InteractionRef;
   viewMode: ViewMode;
@@ -115,11 +139,12 @@ function Scene({
         <FitController
           geometry={geometry}
           fitRef={fitRef}
+          frameRef={frameRef}
           interactingRef={interactingRef}
         />
         <Suspense fallback={null}>
           {geometry && (
-            <group>
+            <group rotation={[-Math.PI / 2, 0, 0]}>
               {viewMode !== "wireframe" && (
                 <mesh geometry={geometry} castShadow receiveShadow>
                   <meshStandardMaterial
@@ -161,11 +186,8 @@ function Scene({
       )}
 
       {showGizmo && (
-        <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
-          <GizmoViewport
-            axisColors={["#ef4444", "#22c55e", "#3b82f6"]}
-            labelColor="white"
-          />
+        <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
+          <RubiksGizmo />
         </GizmoHelper>
       )}
 
@@ -223,6 +245,7 @@ export function Viewport() {
   const [processing, setProcessing] = useState(false);
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
   const fitRef = useRef<(() => void) | null>(null);
+  const frameRef = useRef<(() => void) | null>(null);
   const interactingRef = useRef(false);
   const [viewMode, setViewMode] = useState<ViewMode>("shaded");
   const [showGrid, setShowGrid] = useState(true);
@@ -285,7 +308,7 @@ export function Viewport() {
       const tag = t?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
       e.preventDefault();
-      fitRef.current?.();
+      frameRef.current?.();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -302,6 +325,7 @@ export function Viewport() {
         <Scene
           geometry={geometry}
           fitRef={fitRef}
+          frameRef={frameRef}
           gridColors={gridColors}
           interactingRef={interactingRef}
           viewMode={viewMode}
@@ -349,78 +373,95 @@ export function Viewport() {
               const Icon = m.icon;
               const active = m.value === viewMode;
               return (
-                <Button
-                  key={m.value}
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className={cn(
-                    "h-7 w-7",
-                    active && "bg-accent text-accent-foreground",
-                  )}
-                  onClick={() => setViewMode(m.value)}
-                  aria-label={m.label}
-                  aria-pressed={active}
-                  title={m.label}
-                >
-                  <Icon className="size-4" />
-                </Button>
+                <Tooltip key={m.value}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "h-7 w-7",
+                        active && "bg-accent text-accent-foreground",
+                      )}
+                      onClick={() => setViewMode(m.value)}
+                      aria-label={m.label}
+                      aria-pressed={active}
+                    >
+                      <Icon className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{m.label}</TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
         )}
 
         <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className={cn(
-              "h-7 w-7",
-              showGrid
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground",
-            )}
-            onClick={() => setShowGrid((v) => !v)}
-            aria-label="Toggle reference grid"
-            aria-pressed={showGrid}
-            title={showGrid ? "Hide reference grid" : "Show reference grid"}
-          >
-            <Grid2x2 className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className={cn(
-              "h-7 w-7",
-              showGizmo
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground",
-            )}
-            onClick={() => setShowGizmo((v) => !v)}
-            aria-label="Toggle navigation gizmo"
-            aria-pressed={showGizmo}
-            title={
-              showGizmo ? "Hide navigation gizmo" : "Show navigation gizmo"
-            }
-          >
-            <Compass className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "h-7 w-7",
+                  showGrid
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setShowGrid((v) => !v)}
+                aria-label="Toggle reference grid"
+                aria-pressed={showGrid}
+              >
+                <Grid2x2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {showGrid ? "Hide reference grid" : "Show reference grid"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "h-7 w-7",
+                  showGizmo
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setShowGizmo((v) => !v)}
+                aria-label="Toggle view cube"
+                aria-pressed={showGizmo}
+              >
+                <Compass className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {showGizmo ? "Hide view cube" : "Show view cube"}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {mesh && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            className="h-7 w-7 bg-background/80"
-            onClick={() => fitRef.current?.()}
-            aria-label="Frame model"
-            title="Frame model (F)"
-          >
-            <Maximize2 className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="h-7 w-7 bg-background/80"
+                onClick={() => frameRef.current?.()}
+                aria-label="Frame model"
+              >
+                <Maximize2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Frame model (F)</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>

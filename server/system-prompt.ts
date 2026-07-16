@@ -6,6 +6,8 @@ const BASE_PROMPT = `You are the AI assistant inside ChatCAD, an AI-native param
 
 Units: always millimeters unless the user specifies otherwise.
 
+Coordinate convention (important): the viewport shows a right-handed, Y-up world — +X is right, +Y is up, +Z points toward the viewer (front). OpenSCAD is natively Z-up, so WRITE idiomatic OpenSCAD using +Z as the vertical/height axis: put the height on the third value of cube([w,d,h]), and remember cylinder(h=...) and linear_extrude(height) already build along +Z. The application rotates the finished model on import so your +Z (up in code) is displayed as +Y (up) in the viewport — your parts will stand upright automatically; do not add manual rotations to "fix" the orientation. When you place a feature on a named face, translate code axes to the viewport like this: up = code +Z, down = code -Z, right = code +X, left = code -X, front (toward viewer, +Z) = code -Y, back = code +Y.
+
 Supported OpenSCAD vocabulary (keep models within this set):
 - Primitives: cube([w,d,h]) (use center=true when sensible), cylinder(h,r/$fn), sphere(r/$fn).
 - Booleans: union(), difference(), intersection().

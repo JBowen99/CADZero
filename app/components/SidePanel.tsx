@@ -12,7 +12,7 @@ export function SidePanel() {
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+      <div className="flex h-11 shrink-0 items-center gap-1 px-2">
         <TabButton
           active={tab === "chat"}
           onClick={() => setTab("chat")}

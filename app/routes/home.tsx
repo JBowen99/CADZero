@@ -4,7 +4,6 @@ import { Toolbar } from "~/components/Toolbar";
 import { TabBar } from "~/components/TabBar";
 import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
-import { StatusBar } from "~/components/StatusBar";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { NamePrompt } from "~/components/NamePrompt";
 import { ChatProvider } from "~/lib/ai-chat";
@@ -98,20 +97,23 @@ function Workspace() {
   return (
     <>
       <Toolbar />
-      <TabBar />
       <ResizablePanelGroup
         orientation="horizontal"
         className="min-h-0 flex-1"
       >
         <ResizablePanel defaultSize="70%" minSize="30%">
-          <Viewport />
+          <div className="flex h-full w-full min-w-0 flex-col">
+            <TabBar />
+            <div className="min-h-0 flex-1">
+              <Viewport />
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize="30%" minSize="20%" maxSize="55%">
           <SidePanel />
         </ResizablePanel>
       </ResizablePanelGroup>
-      <StatusBar />
       {wsInitialized && !configured && <WorkspaceSetup />}
       <NamePrompt />
     </>

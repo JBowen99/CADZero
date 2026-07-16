@@ -34,17 +34,20 @@ See `AI CAD MVP Project Specification.md` for the full vision.
 +----------------------------------------------------------+
 |  Toolbar (app name, backend selector, export, theme)     |
 +----------------------------------+-----------------------+
-|                                  |                       |
-|          Viewport (R3F)          |       Chat            |
-|          orbit / pan / zoom      |   (resizable panel)   |
-|          grid, gizmo             |                       |
+|  Part tabs (left panel only)     | Chat|Code|History tabs|
 +----------------------------------+-----------------------+
-|  Status bar (connection, backend, generation state)      |
-+----------------------------------------------------------+
+|                                  |                       |
+|          Viewport (R3F)          |    active panel       |
+|          orbit / pan / zoom      |   (resizable panel)   |
+|          grid, view cube         |                       |
++----------------------------------+-----------------------+
 ```
 
-The viewport and chat are a horizontal `ResizablePanelGroup` (drag the handle).
-Default split is 70% / 30%; chat min 20%, max 55%. Panel-size persistence is
+The viewport and right panel are a horizontal `ResizablePanelGroup` (drag the
+handle). Default split is 70% / 30%; right panel min 20%, max 55%. **There is no
+bottom status bar (removed).** The multi-part `TabBar` lives above the **viewport
+only** (inside the left `ResizablePanel`, not full-width); the right `SidePanel`
+has its own `Chat | Code | History` tab row. Panel-size persistence is
 intentionally deferred — a storage layer will be added later.
 
 ---
@@ -95,17 +98,17 @@ app/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx
 │   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey
-│   ├── ChatPanel.tsx        # message list + composer (text + image attachments); mode + model Selects + attach/send buttons live below the input
+│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; attachments render ABOVE the textarea; mode + model Selects with labels (container-query-hidden when the panel is narrow) + attach/send icon buttons (Radix tooltips) below the input; vision guard strips images on send + red warning
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr)
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage + CodeView)
 │   ├── CodeView.tsx         # right-panel Code tab: shows current cadCode read-only
 │   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch
-│   ├── TabBar.tsx           # multi-part tabs (full-width under Toolbar): switch/close/new; switch+close-active disabled while busy
+│   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
 │   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
 │   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
 │   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
-│   └── StatusBar.tsx        # connection, backend, OpenSCAD capability, triangle count, active part, workspace root, build state
+│   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language
@@ -144,7 +147,7 @@ server/                       # AI chat backend (TypeScript, runs standalone now
 ├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
 ├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
 ├── backend-types.ts          # BackendName = "openscad" | "build123d"
-├── system-prompt.ts          # BASE_PROMPT + buildInstructions(mode, cadCode, language); attached-image guidance; BUILD retry-on-error policy
+├── system-prompt.ts          # BASE_PROMPT + buildInstructions(mode, cadCode, language); Y-up viewport / Z-up OpenSCAD coordinate convention + code→viewport face mapping; attached-image guidance; BUILD retry-on-error policy
 ├── backends/openscad.ts      # renderScad(code) spawns `openscad -o out.stl`; checkOpenScad()
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
 ├── mesh-store.ts             # ephemeral Map<meshId, TriangleMesh> (LRU, capped 64)
@@ -226,9 +229,15 @@ exact same SPA as the web app — Electron just loads it.
   `FileUIPart` data-URLs straight through the transport → `convertToModelMessages`
   → OpenRouter `image_url`; **no server transport changes were needed**.
   `ChatMessage` renders image parts as thumbnails. A `ScanEye` icon in the model
-  dropdown/trigger shows vision capability. Send + attach buttons live in the
-  footer row next to the model Select (outside the textarea), so the textarea
-  keeps default padding.
+  dropdown/trigger shows vision capability. Attach/send are icon buttons in the
+  footer row with Radix tooltips. **Attachments render ABOVE the textarea.**
+  **Vision guard on send:** if the user switches to a non-vision model while
+  images are attached, `submit()` computes `files = visionModel ? images :
+  undefined` — the images are **dropped** (text-only send) and a red
+  `text-destructive` "Images won't be sent — model can't read images" warning
+  shows bottom-right of the composer on the same line as the ⌘/Ctrl+Enter hint.
+  (Attaching itself is also disabled when `!visionModel`, so this mainly guards
+  the attach-then-switch-model case.)
 - **OpenSCAD self-correction.** `streamText` uses `stopWhen: stepCountIs(4)`, so
   when a Build's `update_model` tool returns `{success:false, stderr}`, the model
   sees the error and retries within the same turn (up to ~3 times). The BUILD-mode
@@ -278,7 +287,7 @@ exact same SPA as the web app — Electron just loads it.
   debounced disk write, settings → disk. There's no traditional "Save to a
   location" — parts live as `.cadz` files in the single workspace. What's
   exposed: per-doc `saveState` (`saved` | `saving` | `unsaved`) shown as a
-  TabBar marker (● = unsaved/blank, spinner = saving) and a StatusBar pill;
+  TabBar marker (● = unsaved/blank, spinner = saving);
   a **Save button** (Toolbar) + **⌘/Ctrl+S** that force-flushes chat
   (`saveSignal` → `useChatPersist` flush). A blank tab (no `partId`) is
   `unsaved`; the **first Save of an unnamed part opens `NamePrompt`** →
@@ -322,8 +331,9 @@ bootstrap in `index.ts`).
 - **Errors → client:** `useChat` exposes `error` (an `Error`) and sets
   `status` to `'error'`. `describeChatError()` (`app/lib/ai-chat.tsx`) classifies
   it: network/down vs auth (401) vs model. `ChatPanel` renders a dismissible
-  banner with **Retry** (`regenerate()`); `StatusBar` shows a concise
-  "Chat error". The banner is the single detailed error UI — don't duplicate it.
+  banner with **Retry** (`regenerate()`); there is no dedicated chat-error
+  pill (the bottom status bar was removed). The banner is the single detailed
+  error UI — don't duplicate it.
 - **Env:** loaded via Node 22's native `--env-file-if-exists=server/.env` (no
   dotenv dep). `server/.env` is gitignored; copy from `server/.env.example`.
 - **Context** is maintained client-side by `useChat` (full message history is
@@ -533,9 +543,11 @@ full-width app shells. We also pin `overflow-hidden` on `html, body`.
 A flex child with `flex-1` defaults to `min-height: auto`, so it grows to fit
 content and pushes siblings (e.g. the chat composer) off-screen instead of
 scrolling. **Add `min-h-0` (and usually `overflow-hidden`)** to any flex item
-that should scroll internally. This bit the chat panel — see
-`ChatPanel.tsx`'s `<ScrollArea className="min-h-0 flex-1 overflow-hidden">`.
-Radix `ScrollArea` likewise needs a height-constrained parent to scroll.
+that should scroll internally. This bit the chat panel — the message list is now
+a plain `<div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">`
+(native scroll, not Radix `ScrollArea`, because Radix's overlay scrollbar was
+clipping right-aligned message bubbles / cutting content off on the right; native
+scroll reserves its own gutter). Still needs a height-constrained parent to scroll.
 
 ### 5. react-resizable-panels v4 API differs from docs/older versions
 shadcn's `resizable` now installs **v4**, which is NOT API-compatible with v2/v3:
@@ -628,8 +640,19 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
   the resizable panel is dragged — no manual resize wiring needed.
 - drei components in use: `OrbitControls` (`makeDefault`, damping, `onStart`/`onEnd`
   for interaction tracking), `Grid` (infinite, toggleable), `GizmoHelper` +
-  `GizmoViewport` (toggleable), `Bounds` (used as a plain measuring container —
+  custom `RubiksGizmo` (a plain 3x3x3 view cube with X/Y/Z/-X/-Y/-Z labels on the
+  six face-center cubies; click any cubie → `tweenCamera(that direction)`; toggleable), `Bounds` (used as a plain measuring container —
   **NOT** declarative `fit`; fitting is driven imperatively by `FitController`).
+- **Coordinate convention / Z-up→Y-up import rotation:** the viewport is a
+  right-handed Y-up world (+X right, +Y up, +Z toward viewer = front). OpenSCAD is
+  natively Z-up, so the model group in `Viewport.tsx` is wrapped in
+  `<group rotation={[-Math.PI/2,0,0]}>` to map code +Z → viewport +Y (so idiomatic
+  OpenSCAD — `cube([w,d,h])` with height on Z, `cylinder(h=…)`, `linear_extrude` —
+  stands upright on the XZ grid). Under this rotation code (x,y,z) → viewport
+  (x, z, -y), i.e. code +Y → viewport back(-Z), code -Y → viewport front(+Z). The
+  system prompt (`server/system-prompt.ts`) documents this convention and the
+  code→viewport face mapping for the model. The gizmo's labels match the VIEWPORT
+  axes (Y on top, Z on the front), so they agree with what the user sees.
 - **three.js CANNOT parse CSS `var()` or `oklch()`.** We previously passed
   `var(--color-background)` to `<color attach="background">` — it silently fell
   back to a bright color and broke dark mode. Fix: the Canvas is **transparent**
@@ -642,16 +665,23 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
   calls `useBounds()`) auto-frames a finished mesh ONLY when the user is not
   controlling the camera (`OrbitControls` `onStart`/`onEnd` → `interactingRef`).
   While orbiting/panning/zooming, nothing reorients the camera (that was the
-  jitter). drei's built-in `start`-cancels-animation is the backstop. Manual
-  frame: top-right button + **`F` hotkey** (guarded to skip when typing in chat
-  or when modifiers are held).
+  jitter). drei's built-in `start`-cancels-animation is the backstop. Two fit
+  fns are exposed via refs: `doFit` (auto-fit on new mesh — **preserves the
+  current camera angle**, drei `reset().fit()`) and `doFrame` (the Frame button +
+  **`F` hotkey** — **also reorients to the front-right-top iso corner** via
+  `Bounds.moveTo(center + FRONT_RIGHT_TOP_DIR·distance).lookAt(center)`, where
+  `FRONT_RIGHT_TOP_DIR = (140,110,160).normalize()` matches the default camera).
+  The hotkey is guarded to skip when typing in chat or when modifiers are held.
 - **View modes:** Shaded (surface, no edges) / Solid (surface + creased edges via
   `EdgesGeometry` at 20° threshold, surface uses `polygonOffset` to avoid
   z-fighting) / Wireframe (edges only, no surface — NOT every triangle edge, just
   structural creases). `EdgesGeometry` is built lazily (only in Solid/Wireframe)
   and disposed on swap/unmount.
-- **Viewport toolbar** (top-right): view-mode segmented group (mesh-gated) · grid
-  + gizmo visibility toggles (always visible) · Frame button (mesh-gated).
+- **Viewport toolbar** (top-right): view-mode segmented group (mesh-gated;
+  Shaded=`Disc`, Solid=`Box`, Wireframe=`Grid3x3`) · grid + view-cube visibility
+  toggles (always visible; view-cube toggle uses the `Compass` icon) · Frame
+  button (mesh-gated). **All six buttons use Radix tooltips** (`side="bottom"`,
+  in the global `TooltipProvider`) instead of native `title` attrs.
 - **Geometry is built off the main thread.** `Viewport.tsx`'s `useEffect`
   converts `mesh.positions` to a `Float32Array`, transfers it to the singleton
   Web Worker (`mesh-worker.ts`) which computes per-vertex normals (same
@@ -678,12 +708,12 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Plan / Chat / Build modes      | **LIVE** — user-selectable via footer Select; drive system prompt + tool use |
 | Model picker                   | **LIVE** — `GET /api/models` (config ∩ live OpenRouter, incl. `supportsVision`) → footer Select with `ScanEye` vision icon, stored in `useSettingsStore` |
 | Off-main-thread geometry       | **LIVE** — Web Worker builds normals + bounding sphere (no UI hitch on large meshes) |
-| Image attachments (vision)     | **LIVE** — paste / drag-drop / paperclip; gated on per-model `supportsVision`; ≤4 imgs, ≤5 MB, downscaled |
+| Image attachments (vision)     | **LIVE** — paste / drag-drop / paperclip; gated on per-model `supportsVision`; ≤4 imgs, ≤5 MB, downscaled; **non-vision model strips images on send + red warning** |
 | OpenSCAD auto-retry            | **LIVE** — `stopWhen: stepCountIs(4)` + `MAX_TRIANGLES=500_000` cap; model self-corrects from stderr |
 | Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code]` tabs in `SidePanel` (Code read-only) |
 | Mesh transport                 | **LIVE** — `GET /api/mesh/:id` returns a BINARY frame `[Uint32 triangleCount][Float32 positions…]` (`application/octet-stream`); client decodes via `arrayBuffer()` + zero-copy `Float32Array` view (was JSON `number[]` — caused load-time freeze) |
-| Viewport view modes / controls | **LIVE** — Shaded/Solid/Wireframe, grid + gizmo toggles, Frame btn + `F` hotkey, interaction-gated camera, dark-mode-correct |
-| OpenSCAD capability check      | **LIVE** — `GET /api/capabilities`, shown in `StatusBar`  |
+| Viewport view modes / controls | **LIVE** — Shaded/Solid/Wireframe, grid + view-cube toggles, Frame btn + `F` hotkey (reorients to front-right-top iso corner + fits), Radix tooltips on all top-right buttons, interaction-gated camera, dark-mode-correct |
+| OpenSCAD capability check      | **LIVE** — `GET /api/capabilities` (now checked server-side only; the bottom `StatusBar` was removed, so no UI surface currently shows it)  |
 | `app/dummy/`                   | **DELETED** — retired now that real OpenSCAD is wired     |
 | `app/services/websocket.ts`    | **Mocked** — `DummyWebSocketClient`; becomes real WS for CAD progress |
 | Export in `useModelStore`      | **Mocked** — returns a fake blob; real `/api/export` is a later task |

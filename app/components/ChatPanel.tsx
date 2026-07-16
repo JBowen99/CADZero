@@ -4,8 +4,6 @@ import { toast } from "sonner";
 import { AlertTriangle, ArrowUp, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
-import { ScrollArea } from "~/components/ui/scroll-area";
-import { Separator } from "~/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -13,6 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
 import { ChatMessage } from "./ChatMessage";
 import { describeChatError, isChatBusy, useChatActions, useChatState, useChatStatus } from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
@@ -134,15 +137,13 @@ export function ChatPanel() {
 
   const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed && images.length === 0) return;
+    const files = visionModel && images.length > 0 ? images : undefined;
+    if (!trimmed && !files) return;
     if (busy) return;
     if (trimmed) {
-      sendMessage({
-        text: trimmed,
-        files: images.length > 0 ? images : undefined,
-      });
-    } else {
-      sendMessage({ files: images });
+      sendMessage({ text: trimmed, files });
+    } else if (files) {
+      sendMessage({ files });
     }
     setImages([]);
     setValue("");
@@ -229,13 +230,10 @@ export function ChatPanel() {
           <EmptyChat onPick={(p) => sendMessage({ text: p })} />
         </div>
       ) : (
-        <ScrollArea className="min-h-0 flex-1 overflow-hidden">
-          <div className="flex flex-col py-2">
-            {messages.map((message, i) => (
-              <div key={message.id}>
-                <ChatMessage message={message} />
-                {i < messages.length - 1 && <Separator />}
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="flex min-w-0 flex-col py-2">
+            {messages.map((message) => (
+              <ChatMessage key={message.id} message={message} />
             ))}
             {status === "submitted" && (
               <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
@@ -245,10 +243,8 @@ export function ChatPanel() {
             )}
             <div ref={bottomRef} />
           </div>
-        </ScrollArea>
+        </div>
       )}
-
-      <Separator />
 
       {error && !dismissed && (
         <div className="flex items-start gap-2 border-l-2 border-destructive/60 bg-destructive/10 px-3 py-2">
@@ -282,7 +278,7 @@ export function ChatPanel() {
 
       <div
         className={cn(
-          "relative shrink-0 p-3",
+          "relative @container shrink-0 p-3",
           dragActive && "ring-2 ring-inset ring-primary/60",
         )}
         onDrop={onDrop}
@@ -294,28 +290,8 @@ export function ChatPanel() {
             Drop images to attach
           </div>
         )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={IMAGE_LIMITS.accept}
-          multiple
-          className="hidden"
-          onChange={onFileChange}
-        />
-        <Textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          placeholder={
-            visionModel
-              ? PLACEHOLDER[mode]
-              : PLACEHOLDER[mode] + " (current model can't read images)"
-          }
-          className="min-h-[72px] max-h-[200px] resize-none text-sm"
-        />
         {images.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex flex-wrap gap-2">
             {images.map((img, i) => (
               <div
                 key={i}
@@ -340,7 +316,30 @@ export function ChatPanel() {
             ))}
           </div>
         )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={IMAGE_LIMITS.accept}
+          multiple
+          className="hidden"
+          onChange={onFileChange}
+        />
+        <Textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          placeholder={
+            visionModel
+              ? PLACEHOLDER[mode]
+              : PLACEHOLDER[mode] + " (current model can't read images)"
+          }
+          className="min-h-[72px] max-h-[200px] resize-none text-sm"
+        />
         <div className="mt-2 flex items-center gap-2">
+          <span className="hidden text-[11px] font-medium text-muted-foreground @sm:inline">
+            Mode
+          </span>
           <Select value={mode} onValueChange={(v) => setMode(v as ChatMode)}>
             <SelectTrigger size="sm" className="h-7 gap-1 px-2 text-xs">
               <SelectValue />
@@ -354,6 +353,9 @@ export function ChatPanel() {
             </SelectContent>
           </Select>
 
+          <span className="hidden text-[11px] font-medium text-muted-foreground @sm:inline">
+            Model
+          </span>
           <Select
             value={model ?? undefined}
             onValueChange={setModel}
@@ -383,54 +385,73 @@ export function ChatPanel() {
             </SelectContent>
           </Select>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            className="h-7 w-7 shrink-0 text-muted-foreground"
-            onClick={openFilePicker}
-            disabled={!visionModel}
-            aria-label="Attach images"
-            title={
-              visionModel
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="h-7 w-7 shrink-0 text-muted-foreground"
+                onClick={openFilePicker}
+                disabled={!visionModel}
+                aria-label="Attach images"
+              >
+                <Paperclip className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {visionModel
                 ? "Attach images"
-                : "Selected model can't read images"
-            }
-          >
-            <Paperclip className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            size="icon-sm"
-            className="h-7 w-7 shrink-0"
-            onClick={busy ? stop : submit}
-            disabled={
-              (!busy && !value.trim() && images.length === 0) ||
-              (!!previewingRevId && !busy)
-            }
-            aria-label={busy ? "Stop generating" : "Send prompt"}
-            title={
-              previewingRevId && !busy
-                ? "Exit history preview to build"
-                : undefined
-            }
-          >
-            {busy ? (
-              status === "streaming" ? (
-                <Square className="size-3.5" />
-              ) : (
-                <Loader2 className="size-4 animate-spin" />
-              )
-            ) : (
-              <ArrowUp className="size-4" />
-            )}
-          </Button>
+                : "Selected model can't read images"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon-sm"
+                className="h-7 w-7 shrink-0"
+                onClick={busy ? stop : submit}
+                disabled={
+                  (!busy && !value.trim() && images.length === 0) ||
+                  (!!previewingRevId && !busy)
+                }
+                aria-label={busy ? "Stop generating" : "Send prompt"}
+              >
+                {busy ? (
+                  status === "streaming" ? (
+                    <Square className="size-3.5" />
+                  ) : (
+                    <Loader2 className="size-4 animate-spin" />
+                  )
+                ) : (
+                  <ArrowUp className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {busy
+                ? status === "streaming"
+                  ? "Stop generating"
+                  : "Working…"
+                : previewingRevId
+                  ? "Exit history preview to build"
+                  : "Send (⌘/Ctrl+Enter)"}
+            </TooltipContent>
+          </Tooltip>
         </div>
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
-          {previewingRevId
-            ? "Viewing an older version — restore or return to current to build."
-            : "⌘/Ctrl + Enter to send"}
-        </p>
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px]">
+          <span className="text-muted-foreground">
+            {previewingRevId
+              ? "Viewing an older version — restore or return to current to build."
+              : "⌘/Ctrl + Enter to send"}
+          </span>
+          {images.length > 0 && !visionModel && (
+            <span className="font-medium text-destructive">
+              Images won't be sent — model can't read images
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
