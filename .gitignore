@@ -1,5 +1,11 @@
 .DS_Store
+
+# Secrets / environment — never commit real values.
+# .env.example is the only env file meant to be tracked.
 .env
+.env.*
+!.env.example
+
 /node_modules/
 
 # React Router
