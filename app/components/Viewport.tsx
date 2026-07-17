@@ -4,11 +4,12 @@ import {
   Bounds,
   GizmoHelper,
   Grid,
+  Line,
   OrbitControls,
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, Compass, Disc, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, Compass, Disc, Grid2x2, Grid3x3, Loader2, Maximize2, MousePointer2, RotateCcw, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -20,9 +21,10 @@ import {
 } from "~/components/ui/tooltip";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useSelectionStore } from "~/store/useSelectionStore";
 import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
-import type { BackendName } from "~/types";
+import type { BackendName, FaceGroup, Topology, TopologySelection } from "~/types";
 
 const OPENSCAD_UP_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
 const IDENTITY_ROTATION: [number, number, number] = [0, 0, 0];
@@ -41,12 +43,63 @@ interface GridColors {
 }
 
 type ViewMode = "shaded" | "solid" | "wireframe";
+type SelectMode = "off" | "face" | "edge" | "vertex";
 
 const VIEW_MODES: { value: ViewMode; label: string; icon: typeof Box }[] = [
   { value: "shaded", label: "Shaded", icon: Disc },
   { value: "solid", label: "Solid", icon: Box },
   { value: "wireframe", label: "Wireframe", icon: Grid3x3 },
 ];
+
+const SELECT_MODES: { value: SelectMode; label: string; icon: typeof Box }[] = [
+  { value: "face", label: "Select faces", icon: Disc },
+  { value: "edge", label: "Select edges", icon: Box },
+  { value: "vertex", label: "Select vertices", icon: MousePointer2 },
+];
+
+function fmtVec(v: [number, number, number]): string {
+  return `(${v[0].toFixed(1)}, ${v[1].toFixed(1)}, ${v[2].toFixed(1)})`;
+}
+
+function normalDirection(n: [number, number, number]): string {
+  const axes: [string, number][] = [
+    ["+X", n[0]],
+    ["-X", -n[0]],
+    ["+Y", n[1]],
+    ["-Y", -n[1]],
+    ["+Z", n[2]],
+    ["-Z", -n[2]],
+  ];
+  axes.sort((a, b) => b[1] - a[1]);
+  return axes[0][1] > 0.7 ? axes[0][0] : `~${axes[0][0]}`;
+}
+
+function faceSelection(face: FaceGroup): TopologySelection {
+  return {
+    kind: "face",
+    id: face.id,
+    label: `Face ${face.id}`,
+    summary: `normal ${normalDirection(face.normal)} · ${face.area.toFixed(0)} mm² · center ${fmtVec(face.center)}`,
+  };
+}
+
+function edgeSelection(edge: Topology["edges"][number]): TopologySelection {
+  return {
+    kind: "edge",
+    id: edge.id,
+    label: `Edge ${edge.id}`,
+    summary: `${edge.length.toFixed(1)} mm`,
+  };
+}
+
+function vertexSelection(vertex: Topology["vertices"][number]): TopologySelection {
+  return {
+    kind: "vertex",
+    id: vertex.id,
+    label: `Vertex ${vertex.id}`,
+    summary: `at ${fmtVec(vertex.position)}`,
+  };
+}
 
 // Front-right-top viewing direction (matches the default camera at [140,110,160]).
 const FRONT_RIGHT_TOP_DIR = new THREE.Vector3(140, 110, 160).normalize();
@@ -148,6 +201,132 @@ function Axes({ length = AXIS_LENGTH }: { length?: number }) {
   );
 }
 
+const HIGHLIGHT_COLOR = "#eab308";
+const PICK_COLOR = "#9ca3af";
+
+function FaceHighlight({
+  geometry,
+  face,
+}: {
+  geometry: THREE.BufferGeometry;
+  face: FaceGroup;
+}) {
+  const geo = useMemo(() => {
+    const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const arr = pos.array as ArrayLike<number> & { slice: (a: number, b: number) => ArrayLike<number> };
+    const start = face.startTri * 9;
+    const end = face.endTri * 9;
+    const sliced = Float32Array.from(arr.slice(start, end) as ArrayLike<number>);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(sliced, 3));
+    return g;
+  }, [geometry, face.startTri, face.endTri]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  return (
+    <mesh geometry={geo}>
+      <meshBasicMaterial
+        color={HIGHLIGHT_COLOR}
+        transparent
+        opacity={0.5}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-1}
+        polygonOffsetUnits={-1}
+      />
+    </mesh>
+  );
+}
+
+function SelectionLayers({
+  geometry,
+  topology,
+  selectMode,
+  selection,
+  onToggle,
+}: {
+  geometry: THREE.BufferGeometry;
+  topology: Topology;
+  selectMode: SelectMode;
+  selection: TopologySelection[];
+  onToggle: (sel: TopologySelection) => void;
+}) {
+  const dotRadius = useMemo(() => {
+    geometry.computeBoundingSphere();
+    const r = geometry.boundingSphere?.radius ?? 10;
+    return Math.max(0.4, r * 0.012);
+  }, [geometry]);
+
+  const isSelected = (kind: TopologySelection["kind"], id: string) =>
+    selection.some((s) => s.kind === kind && s.id === id);
+
+  const showAllEdges = selectMode === "edge";
+  const showAllVertices = selectMode === "vertex";
+
+  return (
+    <group>
+      {selection
+        .filter((s) => s.kind === "face")
+        .map((s) => {
+          const face = topology.faces.find((f) => f.id === s.id);
+          return face ? (
+            <FaceHighlight key={`fh-${s.id}`} geometry={geometry} face={face} />
+          ) : null;
+        })}
+
+      {topology.edges.map((edge) => {
+        const selected = isSelected("edge", edge.id);
+        if (!showAllEdges && !selected) return null;
+        const pts: [number, number, number][] = [];
+        for (let i = 0; i < edge.positions.length; i += 3) {
+          pts.push([
+            edge.positions[i],
+            edge.positions[i + 1],
+            edge.positions[i + 2],
+          ]);
+        }
+        return (
+          <Line
+            key={`el-${edge.id}`}
+            points={pts}
+            color={selected ? HIGHLIGHT_COLOR : PICK_COLOR}
+            lineWidth={selected ? 4 : 2}
+            transparent={!selected}
+            opacity={selected ? 1 : 0.5}
+            onClick={showAllEdges ? () => onToggle(edgeSelection(edge)) : undefined}
+          />
+        );
+      })}
+
+      {topology.vertices.map((v) => {
+        const selected = isSelected("vertex", v.id);
+        if (!showAllVertices && !selected) return null;
+        return (
+          <mesh
+            key={`vd-${v.id}`}
+            position={v.position}
+            onClick={
+              showAllVertices
+                ? (e) => {
+                    e.stopPropagation();
+                    onToggle(vertexSelection(v));
+                  }
+                : undefined
+            }
+          >
+            <sphereGeometry args={[dotRadius * (selected ? 1.6 : 1), 16, 16]} />
+            <meshStandardMaterial
+              color={selected ? HIGHLIGHT_COLOR : PICK_COLOR}
+              emissive={selected ? HIGHLIGHT_COLOR : "#000000"}
+              emissiveIntensity={selected ? 0.4 : 0}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
 function Scene({
   geometry,
   fitRef,
@@ -160,6 +339,10 @@ function Scene({
   showGizmo,
   showAxes,
   language,
+  topology,
+  selectMode,
+  selection,
+  onToggleSelection,
 }: {
   geometry: THREE.BufferGeometry | null;
   fitRef: FitRef;
@@ -172,6 +355,10 @@ function Scene({
   showGizmo: boolean;
   showAxes: boolean;
   language: BackendName;
+  topology: Topology | null;
+  selectMode: SelectMode;
+  selection: TopologySelection[];
+  onToggleSelection: (sel: TopologySelection) => void;
 }) {
   const edgesRef = useRef<THREE.EdgesGeometry | null>(null);
   const edges = useMemo(() => {
@@ -213,7 +400,24 @@ function Scene({
               }
             >
               {viewMode !== "wireframe" && (
-                <mesh geometry={geometry} castShadow receiveShadow>
+                <mesh
+                  geometry={geometry}
+                  castShadow
+                  receiveShadow
+                  onClick={
+                    selectMode === "face" && topology
+                      ? (e) => {
+                          e.stopPropagation();
+                          const fi = e.faceIndex;
+                          if (fi == null) return;
+                          const face = topology.faces.find(
+                            (f) => fi >= f.startTri && fi < f.endTri,
+                          );
+                          if (face) onToggleSelection(faceSelection(face));
+                        }
+                      : undefined
+                  }
+                >
                   <meshStandardMaterial
                     color="#d4d4d8"
                     metalness={0.1}
@@ -228,6 +432,15 @@ function Scene({
                   <lineSegments geometry={edges}>
                     <lineBasicMaterial color={edgeColor ?? "#eab308"} />
                   </lineSegments>
+              )}
+              {geometry && topology && (
+                <SelectionLayers
+                  geometry={geometry}
+                  topology={topology}
+                  selectMode={selectMode}
+                  selection={selection}
+                  onToggle={onToggleSelection}
+                />
               )}
             </group>
           )}
@@ -305,8 +518,12 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
+  const topology = useModelStore((s) => s.topology);
   const language = useModelStore((s) => s.language);
   const rendering = useModelStore((s) => s.isRendering);
+  const selection = useSelectionStore((s) => s.selection);
+  const toggleSelection = useSelectionStore((s) => s.toggle);
+  const clearSelection = useSelectionStore((s) => s.clear);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
@@ -322,6 +539,7 @@ export function Viewport() {
   const frameRef = useRef<(() => void) | null>(null);
   const interactingRef = useRef(false);
   const [viewMode, setViewMode] = useState<ViewMode>("shaded");
+  const [selectMode, setSelectMode] = useState<SelectMode>("off");
   const [showGrid, setShowGrid] = useState(true);
   const [showGizmo, setShowGizmo] = useState(true);
   const [showAxes, setShowAxes] = useState(true);
@@ -329,6 +547,27 @@ export function Viewport() {
   const { resolvedTheme } = useTheme();
   const [gridColors, setGridColors] = useState<GridColors | null>(null);
   const [edgeColor, setEdgeColor] = useState<string | null>(null);
+
+  const canSelect = !!topology;
+
+  useEffect(() => {
+    if (!canSelect && selectMode !== "off") setSelectMode("off");
+  }, [canSelect, selectMode]);
+
+  useEffect(() => {
+    clearSelection();
+  }, [mesh, clearSelection]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectMode !== "off") setSelectMode("off");
+        else clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectMode, clearSelection]);
 
   useEffect(() => {
     setGridColors({
@@ -411,6 +650,10 @@ export function Viewport() {
           showGizmo={showGizmo}
           showAxes={showAxes}
           language={language}
+          topology={topology}
+          selectMode={selectMode}
+          selection={selection}
+          onToggleSelection={toggleSelection}
         />
       </Canvas>
 
@@ -468,6 +711,65 @@ export function Viewport() {
           </TooltipContent>
         </Tooltip>
       ) : null}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "h-7 w-7",
+                selectMode === "off"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setSelectMode("off")}
+              aria-label="Orbit (no selection)"
+              aria-pressed={selectMode === "off"}
+            >
+              <Compass className="size-4" />
+            </Button>
+            {SELECT_MODES.map((m) => {
+              const Icon = m.icon;
+              const active = m.value === selectMode;
+              return (
+                <Button
+                  key={m.value}
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canSelect}
+                  className={cn(
+                    "h-7 w-7",
+                    active && "bg-primary text-primary-foreground",
+                  )}
+                  onClick={() => setSelectMode(active ? "off" : m.value)}
+                  aria-label={m.label}
+                  aria-pressed={active}
+                >
+                  <Icon className="size-4" />
+                </Button>
+              );
+            })}
+            {selection.length > 0 && (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="ml-1 mr-0.5 rounded px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                aria-label="Clear selection"
+              >
+                {selection.length}
+              </button>
+            )}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {canSelect
+            ? "Pick faces / edges / vertices to add as chat context"
+            : "Selection requires a Build123D part (B-rep)"}
+        </TooltipContent>
+      </Tooltip>
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (
           <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">

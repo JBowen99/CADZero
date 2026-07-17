@@ -1,13 +1,31 @@
 import { randomUUID } from "node:crypto";
 import type { TriangleMesh } from "./renderer/stl";
+import type { Topology } from "./renderer/topology";
 
 const MAX_ENTRIES = 64;
 
-const store = new Map<string, TriangleMesh>();
+interface StoredMesh {
+  mesh: TriangleMesh;
+  topology: Topology | null;
+}
 
-export function storeMesh(mesh: TriangleMesh): string {
+const store = new Map<string, StoredMesh>();
+
+function touch(id: string): StoredMesh | undefined {
+  const entry = store.get(id);
+  if (entry) {
+    store.delete(id);
+    store.set(id, entry);
+  }
+  return entry;
+}
+
+export function storeMesh(
+  mesh: TriangleMesh,
+  topology: Topology | null = null,
+): string {
   const id = randomUUID();
-  store.set(id, mesh);
+  store.set(id, { mesh, topology });
   while (store.size > MAX_ENTRIES) {
     const oldest = store.keys().next().value;
     if (oldest === undefined) break;
@@ -17,10 +35,9 @@ export function storeMesh(mesh: TriangleMesh): string {
 }
 
 export function getMesh(id: string): TriangleMesh | undefined {
-  const mesh = store.get(id);
-  if (mesh) {
-    store.delete(id);
-    store.set(id, mesh);
-  }
-  return mesh;
+  return touch(id)?.mesh;
+}
+
+export function getTopology(id: string): Topology | null | undefined {
+  return touch(id)?.topology;
 }

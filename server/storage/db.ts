@@ -50,6 +50,9 @@ function migrate(db: DatabaseType): void {
   if (current < 2) {
     addColumnIfMissing(db, "revisions", "label", "TEXT");
   }
+  if (current < 3) {
+    addColumnIfMissing(db, "meshes", "topology_json", "TEXT");
+  }
   if (current < SCHEMA_VERSION) {
     setVersion(db, SCHEMA_VERSION);
   }

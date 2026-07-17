@@ -18,8 +18,8 @@ import type { BackendName } from "./backend-types";
 import { checkOpenScad } from "./backends/openscad";
 import { checkBuild123d } from "./backends/build123d";
 import { exportFor, renderFor } from "./backends";
-import { parseStl } from "./renderer/stl";
-import { storeMesh, getMesh } from "./mesh-store";
+import type { Topology, TopologySelection } from "./renderer/topology";
+import { storeMesh, getMesh, getTopology } from "./mesh-store";
 import { listAvailableModels, resolveModelId } from "./models";
 import {
   getWorkspaceRoot,
@@ -237,6 +237,15 @@ app.get("/api/parts/:id/meshes/:blobId", (c) => {
   return sendMeshBody(c, mesh);
 });
 
+app.get("/api/parts/:id/topology/:blobId", (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const mesh = getMeshBlob(root, c.req.param("id"), c.req.param("blobId"));
+  if (!mesh) return c.json({ error: "mesh not found" }, 404);
+  if (!mesh.topology) return c.json({ error: "no topology" }, 404);
+  return c.json(mesh.topology);
+});
+
 app.get("/api/parts/:id/export/:format", async (c) => {
   const root = workspaceOr400(c);
   if (typeof root !== "string") return root;
@@ -349,14 +358,16 @@ app.post("/api/parts/:id/revisions", async (c) => {
   const language: BackendName = existingMeta.language;
 
   let mesh: { positions: number[] | Float32Array; triangleCount: number } | null = null;
+  let topology: Topology | null = null;
   let renderError: string | null = null;
   const rendered = await renderFor(language, body.code);
-  if (rendered.ok && rendered.stl) {
-    const parsed = parseStl(rendered.stl);
-    if (parsed.triangleCount > MAX_TRIANGLES) {
-      renderError = `The model is ${parsed.triangleCount.toLocaleString()} triangles — too dense to preview. Saved the code without geometry.`;
+  if (rendered.ok && rendered.mesh) {
+    const m = rendered.mesh;
+    if (m.triangleCount > MAX_TRIANGLES) {
+      renderError = `The model is ${m.triangleCount.toLocaleString()} triangles — too dense to preview. Saved the code without geometry.`;
     } else {
-      mesh = parsed;
+      mesh = m;
+      topology = rendered.topology ?? null;
     }
   } else {
     renderError =
@@ -371,6 +382,7 @@ app.post("/api/parts/:id/revisions", async (c) => {
     message: body.message?.trim() || "Manual edit",
     label: body.label?.trim() || null,
     mesh,
+    topology,
   });
   if (!rev) return c.json({ error: "part not found" }, 404);
   const meta = getPart(root, partId);
@@ -430,6 +442,12 @@ app.get("/api/mesh/:id", (c) => {
   return sendMeshBody(c, { triangleCount: mesh.triangleCount, positions });
 });
 
+app.get("/api/topology/:id", (c) => {
+  const topology = getTopology(c.req.param("id"));
+  if (!topology) return c.json({ error: "topology not found" }, 404);
+  return c.json(topology);
+});
+
 app.post("/api/render", async (c) => {
   const body = await c.req
     .json<{ code?: string; language?: BackendName }>()
@@ -440,14 +458,14 @@ app.post("/api/render", async (c) => {
   const language: BackendName =
     body.language === "build123d" ? "build123d" : "openscad";
   const rendered = await renderFor(language, body.code);
-  if (!rendered.ok || !rendered.stl) {
+  if (!rendered.ok || !rendered.mesh) {
     return c.json({
       ok: false,
       message: `${language === "build123d" ? "Build123D" : "OpenSCAD"} failed to render the model.`,
       stderr: rendered.stderr || "Unknown render error.",
     });
   }
-  const mesh = parseStl(rendered.stl);
+  const mesh = rendered.mesh;
   if (mesh.triangleCount > MAX_TRIANGLES) {
     return c.json({
       ok: false,
@@ -455,7 +473,7 @@ app.post("/api/render", async (c) => {
       stderr: "",
     });
   }
-  const meshId = storeMesh(mesh);
+  const meshId = storeMesh(mesh, rendered.topology ?? null);
   return c.json({
     ok: true,
     meshId,
@@ -495,7 +513,7 @@ function makeUpdateModelTool(opts: {
         }
       }
       const rendered = await renderFor(language, code);
-      if (!rendered.ok || !rendered.stl) {
+      if (!rendered.ok || !rendered.mesh) {
         const backendLabel = language === "build123d" ? "Build123D" : "OpenSCAD";
         return {
           success: false,
@@ -505,7 +523,7 @@ function makeUpdateModelTool(opts: {
           durationMs: rendered.durationMs,
         };
       }
-      const mesh = parseStl(rendered.stl);
+      const mesh = rendered.mesh;
       if (mesh.triangleCount > MAX_TRIANGLES) {
         const hint =
           language === "build123d"
@@ -518,7 +536,8 @@ function makeUpdateModelTool(opts: {
           durationMs: rendered.durationMs,
         };
       }
-      const meshId = storeMesh(mesh);
+      const topology = rendered.topology ?? null;
+      const meshId = storeMesh(mesh, topology);
 
       let partId = opts.partId;
       let revId: string | null = null;
@@ -540,6 +559,7 @@ function makeUpdateModelTool(opts: {
             positions: mesh.positions,
             triangleCount: mesh.triangleCount,
           },
+          topology,
         });
         revId = rev?.revId ?? null;
       }
@@ -565,16 +585,18 @@ interface ChatRequestBody {
   cadCode?: string | null;
   language?: BackendName;
   partId?: string | null;
+  selection?: TopologySelection[];
 }
 
 app.post("/api/chat", async (c) => {
-  const { messages, mode, model, cadCode, language, partId } =
+  const { messages, mode, model, cadCode, language, partId, selection } =
     await c.req.json<ChatRequestBody>();
 
   const safeMode: ChatMode =
     mode === "plan" || mode === "build" ? mode : "chat";
   const safeLanguage: BackendName = language ?? "openscad";
   const modelId = await resolveModelId(model);
+  const safeSelection = Array.isArray(selection) ? selection : [];
 
   let workspaceRoot: string | null = null;
   try {
@@ -585,7 +607,12 @@ app.post("/api/chat", async (c) => {
 
   const result = streamText({
     model: openrouter.chat(modelId),
-    instructions: buildInstructions(safeMode, cadCode ?? null, safeLanguage),
+    instructions: buildInstructions(
+      safeMode,
+      cadCode ?? null,
+      safeLanguage,
+      safeSelection,
+    ),
     messages: await convertToModelMessages(messages),
     tools: {
       update_model: makeUpdateModelTool({

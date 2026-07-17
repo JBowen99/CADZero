@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../env";
+import type { TriangleMesh } from "../renderer/stl";
+import type { Topology } from "../renderer/topology";
 import type { ExportResult, RenderResult } from "./types";
 
 const RENDER_TIMEOUT_MS = 30_000;
@@ -177,6 +179,61 @@ class Build123DWorker {
     }
   }
 
+  async tessellate(
+    code: string,
+    timeoutMs: number,
+  ): Promise<{ mesh: TriangleMesh; topology: Topology | null }> {
+    await this.ensure();
+    if (!this.proc || !this.proc.stdin) {
+      throw new Error("Build123D worker is not running.");
+    }
+    const dir = join(tmpdir(), "cadzero");
+    await mkdir(dir, { recursive: true });
+    const id = randomUUID();
+    const outPath = join(dir, `${id}.bin`);
+    const topoPath = `${outPath}.topo.json`;
+    const req = JSON.stringify({ id, code, out_path: outPath, format: "tessellate" });
+
+    const result = await new Promise<WorkerResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const err = new Error("Build123D render timed out.");
+        const p = this.pending.get(id);
+        if (p) {
+          this.pending.delete(id);
+          p.reject(err);
+        }
+        this.failAll(err);
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc!.stdin!.write(req + "\n");
+    });
+
+    if (!result.ok) {
+      rmSync(outPath, { force: true });
+      rmSync(topoPath, { force: true });
+      throw new Error(result.error || "Build123D render failed.");
+    }
+    try {
+      const bin = await readFile(outPath);
+      if (bin.length < 4) throw new Error("tessellation output too small");
+      const triangleCount = bin.readUInt32LE(0);
+      const floatCount = (bin.length - 4) / 4;
+      const view = new Float32Array(bin.buffer, bin.byteOffset + 4, floatCount);
+      const positions = Array.from(view);
+      let topology: Topology | null = null;
+      try {
+        const raw = await readFile(topoPath, "utf8");
+        topology = JSON.parse(raw) as Topology;
+      } catch {
+        topology = null;
+      }
+      return { mesh: { positions, triangleCount }, topology };
+    } finally {
+      rmSync(outPath, { force: true });
+      rmSync(topoPath, { force: true });
+    }
+  }
+
   async version(): Promise<string> {
     await this.ensure();
     return "ok";
@@ -188,8 +245,8 @@ const worker = new Build123DWorker();
 export async function renderBuild123d(code: string): Promise<RenderResult> {
   const start = Date.now();
   try {
-    const stl = await worker.request(code, "stl", RENDER_TIMEOUT_MS);
-    return { ok: true, stl, stderr: "", durationMs: Date.now() - start };
+    const { mesh, topology } = await worker.tessellate(code, RENDER_TIMEOUT_MS);
+    return { ok: true, mesh, topology, stderr: "", durationMs: Date.now() - start };
   } catch (e) {
     return {
       ok: false,

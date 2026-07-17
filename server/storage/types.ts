@@ -1,3 +1,5 @@
+import type { Topology } from "../renderer/topology";
+
 export type PartType = "part" | "sheet-metal" | "assembly";
 
 export type BackendName = "openscad" | "build123d";
@@ -50,6 +52,7 @@ export interface MessageRecord {
 export interface StoredMesh {
   triangleCount: number;
   positions: Buffer;
+  topology: Topology | null;
 }
 
 export interface SheetMetalMeta {

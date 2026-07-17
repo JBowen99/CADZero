@@ -1,6 +1,10 @@
+import type { TriangleMesh } from "../renderer/stl";
+import type { Topology } from "../renderer/topology";
+
 export interface RenderResult {
   ok: boolean;
-  stl?: Buffer;
+  mesh?: TriangleMesh;
+  topology?: Topology | null;
   stderr: string;
   durationMs: number;
 }

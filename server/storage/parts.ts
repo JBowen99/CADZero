@@ -3,6 +3,7 @@ import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { closePartDb, openPartDb } from "./db";
+import type { Topology } from "../renderer/topology";
 import type {
   BackendName,
   MessageRecord,
@@ -194,6 +195,7 @@ export interface CreateRevisionInput {
   label?: string | null;
   parentRevId?: string | null;
   mesh?: { positions: number[] | Float32Array; triangleCount: number } | null;
+  topology?: Topology | null;
   meshBlobId?: string | null;
 }
 
@@ -212,7 +214,10 @@ export function createRevision(
   const parentRevId = input.parentRevId ?? meta.headRevId;
   const now = Date.now();
   const meshBlobId =
-    input.meshBlobId ?? (input.mesh ? storeMeshBlob(db, input.mesh) : null);
+    input.meshBlobId ??
+    (input.mesh
+      ? storeMeshBlob(db, input.mesh, input.topology ?? null)
+      : null);
   const language = meta.language;
 
   db.prepare(
@@ -362,6 +367,7 @@ export function checkpoint(
 export function storeMeshBlob(
   db: DatabaseType,
   mesh: { positions: number[] | Float32Array; triangleCount: number },
+  topology: Topology | null,
 ): string {
   const blobId = randomUUID();
   const arr =
@@ -369,9 +375,10 @@ export function storeMeshBlob(
       ? mesh.positions
       : Float32Array.from(mesh.positions);
   const buf = Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength);
+  const topoJson = topology ? JSON.stringify(topology) : null;
   db.prepare(
-    "INSERT INTO meshes(blob_id, triangle_count, positions) VALUES(?,?,?)",
-  ).run(blobId, mesh.triangleCount, buf);
+    "INSERT INTO meshes(blob_id, triangle_count, positions, topology_json) VALUES(?,?,?,?)",
+  ).run(blobId, mesh.triangleCount, buf, topoJson);
   return blobId;
 }
 
@@ -385,11 +392,21 @@ export function getMeshBlob(
   const db = openPartDb(file);
   const row = db
     .prepare(
-      "SELECT triangle_count AS triangleCount, positions AS positions FROM meshes WHERE blob_id = ?",
+      "SELECT triangle_count AS triangleCount, positions AS positions, topology_json AS topologyJson FROM meshes WHERE blob_id = ?",
     )
-    .get(blobId) as { triangleCount: number; positions: Buffer } | undefined;
+    .get(blobId) as
+    | { triangleCount: number; positions: Buffer; topologyJson: string | null }
+    | undefined;
   if (!row) return null;
-  return { triangleCount: row.triangleCount, positions: row.positions };
+  let topology: Topology | null = null;
+  if (row.topologyJson) {
+    try {
+      topology = JSON.parse(row.topologyJson) as Topology;
+    } catch {
+      topology = null;
+    }
+  }
+  return { triangleCount: row.triangleCount, positions: row.positions, topology };
 }
 
 export function listMessages(
