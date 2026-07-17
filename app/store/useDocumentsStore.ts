@@ -273,7 +273,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         }
         return buildState(openDocs, activeClientId);
       });
-      useModelStore.getState().clear();
+      mirrorActiveToModel(doc);
     },
 
     closeTab: (clientId) => {
