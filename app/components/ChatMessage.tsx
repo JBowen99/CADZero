@@ -38,7 +38,7 @@ function BuildCard({ part }: { part: BuildPart }) {
           {part.input.message}
         </p>
       )}
-      {code && <CodeBlock code={code} language="openscad" />}
+      {code && <CodeBlock code={code} language={part.input?.language ?? "openscad"} />}
       <div
         className={cn(
           "flex items-center gap-1.5 px-1 text-xs",
