@@ -25,6 +25,7 @@ import build123d
 from build123d import Compound, Shape, export_brep, export_step, export_stl
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRep import BRep_Tool
+from OCP.TopAbs import TopAbs_REVERSED
 from OCP.TopLoc import TopLoc_Location
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_TangentialDeflection
@@ -48,6 +49,7 @@ def tessellate(result, out_path):
         tri = BRep_Tool.Triangulation_s(face.wrapped, loc)
         if tri is None:
             continue
+        reverse_winding = face.wrapped.Orientation() == TopAbs_REVERSED
         trsf = loc.Transformation()
         n_nodes = tri.NbNodes()
         node_pts = []
@@ -62,6 +64,8 @@ def tessellate(result, out_path):
         for t in range(1, tri.NbTriangles() + 1):
             tri_obj = tri.Triangle(t)
             ia, ib, ic = tri_obj.Get()
+            if reverse_winding:
+                ib, ic = ic, ib
             ax, ay, az = node_pts[ia - 1]
             bx, by, bz = node_pts[ib - 1]
             cx, cy, cz = node_pts[ic - 1]
