@@ -1,6 +1,6 @@
 export type BackendName = "openscad" | "build123d";
 
-export type ExportFormat = "stl" | "obj" | "3mf";
+export type ExportFormat = "stl" | "obj" | "3mf" | "step";
 
 export type MessageRole = "user" | "assistant";
 

@@ -22,6 +22,10 @@ import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
+import type { BackendName } from "~/types";
+
+const OPENSCAD_UP_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
+const IDENTITY_ROTATION: [number, number, number] = [0, 0, 0];
 
 interface FitRef {
   current: (() => void) | null;
@@ -155,6 +159,7 @@ function Scene({
   showGrid,
   showGizmo,
   showAxes,
+  language,
 }: {
   geometry: THREE.BufferGeometry | null;
   fitRef: FitRef;
@@ -166,6 +171,7 @@ function Scene({
   showGrid: boolean;
   showGizmo: boolean;
   showAxes: boolean;
+  language: BackendName;
 }) {
   const edgesRef = useRef<THREE.EdgesGeometry | null>(null);
   const edges = useMemo(() => {
@@ -199,7 +205,13 @@ function Scene({
         />
         <Suspense fallback={null}>
           {geometry && (
-            <group rotation={[-Math.PI / 2, 0, 0]}>
+            <group
+              rotation={
+                language === "build123d"
+                  ? IDENTITY_ROTATION
+                  : OPENSCAD_UP_ROTATION
+              }
+            >
               {viewMode !== "wireframe" && (
                 <mesh geometry={geometry} castShadow receiveShadow>
                   <meshStandardMaterial
@@ -293,6 +305,7 @@ function EmptyHint() {
 
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
+  const language = useModelStore((s) => s.language);
   const rendering = useModelStore((s) => s.isRendering);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
@@ -397,6 +410,7 @@ export function Viewport() {
           showGrid={showGrid}
           showGizmo={showGizmo}
           showAxes={showAxes}
+          language={language}
         />
       </Canvas>
 

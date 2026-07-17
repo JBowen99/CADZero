@@ -28,6 +28,31 @@ Build123D *rendering* is still deferred (the editor offers a Python grammar but
 only OpenSCAD can execute). See `AI CAD MVP Project Specification.md` for the
 full vision.
 
+> **Update (Build123D backend):** Build123D rendering is now **live**. The app
+> has **two interchangeable CAD kernels** — OpenSCAD (external CLI, Z-up) and
+> Build123D (Python over the OpenCascade/OCP B-rep kernel, **Y-up native**, and
+> the only backend that can export **STEP**). All render/export paths dispatch
+> through `server/backends/index.ts` (`renderFor/exportFor` by language); the AI
+> `update_model` tool schema is now `z.enum(["openscad","build123d"])`. Build123D
+> runs in a **persistent Python worker** (`server/backends/build123d_worker.py`,
+> managed by `build123d.ts`) — the ~5–10s OCP import is paid once at worker
+> startup, then every render reuses the warm process (subsequent renders are
+> sub-second). A hanging script is killed at the 30s render timeout and the
+> worker respawns on the next render. The user/AI contract: a Build123D script
+> must assign its final shape to a top-level variable named **`result`** (a
+> `build123d.Shape`/`Compound`); the worker exports STL/STEP from it — scripts
+> must **not** call export functions, `print`, or `sys.exit`. Runtime: a
+> self-contained CPython 3.12 (+ `build123d`/`OCP`) is fetched into
+> `server/python/` via **`pnpm setup:python`** (`scripts/setup-python.sh`,
+> python-build-standalone); resolution is `PYTHON_PATH` env → bundled
+> `<cwd>/server/python/bin/python3` → system `python3` fallback. In the UI,
+> switching the Toolbar backend selector on an **unsaved** tab sets that doc's
+> language; it's locked once a part is created (formal immutability + creation
+> dialog lands in the next phase). The viewport applies a `-π/2` X rotation to
+> **OpenSCAD** meshes (Z-up→Y-up) but **no rotation** to Build123D meshes
+> (`Viewport.tsx` `language`-dependent group rotation). STEP export is gated to
+> Build123D parts (OpenSCAD→STEP returns HTTP 400).
+
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
 > deliberately moved to **TypeScript + HTTP streaming** (Vercel AI SDK). The CAD
 > kernel also landed in **TypeScript** (Node spawns the `openscad` binary); no
@@ -150,14 +175,19 @@ app/
 
 ```
 server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual", code-only), GET /api/parts/:id/export/:format (stl|obj|3mf; re-renders code via OpenSCAD, streams bytes; ?revId= exports a specific revision), /api/capabilities, /api/health
+├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual"; re-renders geometry for both backends), GET /api/parts/:id/export/:format (stl|obj|3mf|step; step is build123d-only; re-renders code via the part's backend, streams bytes; ?revId= exports a specific revision), /api/capabilities (openscad + build123d), /api/health
 ├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
-├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH; assertConfig()
+├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH / PYTHON_PATH; assertConfig()
 ├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
 ├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
-├── backend-types.ts          # BackendName = "openscad" | "build123d"
-├── system-prompt.ts          # BASE_PROMPT + buildInstructions(mode, cadCode, language); Y-up viewport / Z-up OpenSCAD coordinate convention + code→viewport face mapping; attached-image guidance; BUILD retry-on-error policy
-├── backends/openscad.ts      # runScadToOutput(code, ext) shared helper; renderScad(code) → STL Buffer (parseStl); exportScad(code, ext) → arbitrary-format Buffer; checkOpenScad()
+├── backend-types.ts          # BackendName = "openscad" | "build123d"; SUPPORTED_BACKENDS (both)
+├── system-prompt.ts          # BASE_PROMPTS (per-language: OPENSCAD Z-up, BUILD123D Y-up + `result=` contract) + buildInstructions(mode, cadCode, language); BUILD retry-on-error policy
+├── backends/                 # CAD kernels — same RenderResult/ExportResult contract
+│   ├── types.ts              # shared RenderResult { ok; stl?; stderr; durationMs } / ExportResult { ok; data?; ... }
+│   ├── index.ts              # DISPATCH: renderFor/exportFor(language, code[, ext]) → openscad or build123d
+│   ├── openscad.ts           # renderScad(code)→STL Buffer; exportScad(code, ext); checkOpenScad()
+│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d/exportBuild123d; checkBuild123d (one-shot spawn); resolvePythonBin() = PYTHON_PATH → <cwd>/server/python/bin/python3 → python3
+│   └── build123d_worker.py   # long-lived Python proc: imports build123d/OCP ONCE; reads {"id,code,out_path,format"} lines, execs code in a fresh namespace, exports `result` to out_path, replies {"id,ok,error?}; stray stdout captured; ready handshake {"ready,version}
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
 ├── mesh-store.ts             # ephemeral Map<meshId, TriangleMesh> (LRU, capped 64)
 ├── storage/                  # PERSISTENCE — .cadz sqlite part files + workspace + settings (Phase 0+)

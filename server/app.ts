@@ -15,7 +15,9 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { config } from "./env";
 import { buildInstructions, type ChatMode } from "./system-prompt";
 import type { BackendName } from "./backend-types";
-import { renderScad, exportScad, checkOpenScad } from "./backends/openscad";
+import { checkOpenScad } from "./backends/openscad";
+import { checkBuild123d } from "./backends/build123d";
+import { exportFor, renderFor } from "./backends";
 import { parseStl } from "./renderer/stl";
 import { storeMesh, getMesh } from "./mesh-store";
 import { listAvailableModels, resolveModelId } from "./models";
@@ -57,6 +59,7 @@ const EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
   stl: { ext: "stl", mime: "model/stl" },
   obj: { ext: "obj", mime: "model/obj" },
   "3mf": { ext: "3mf", mime: "model/3mf" },
+  step: { ext: "step", mime: "application/step" },
 };
 
 function sanitizeFileName(name: string): string {
@@ -85,9 +88,13 @@ app.get("/api/models", async (c) => {
 });
 
 app.get("/api/capabilities", async (c) => {
-  const openscad = await checkOpenScad();
+  const [openscad, build123d] = await Promise.all([
+    checkOpenScad(),
+    checkBuild123d(),
+  ]);
   return c.json({
     openscad: openscad.ok ? { ok: true, version: openscad.version } : { ok: false, error: openscad.error },
+    build123d: build123d.ok ? { ok: true, version: build123d.version } : { ok: false, error: build123d.error },
   });
 });
 
@@ -236,22 +243,31 @@ app.get("/api/parts/:id/export/:format", async (c) => {
 
   const revId = c.req.query("revId");
   let code: string | null = null;
+  let exportLanguage: BackendName = "openscad";
   if (revId) {
     const rev = getRevision(root, partId, revId);
     code = rev?.code ?? null;
+    exportLanguage = rev?.language ?? "openscad";
   } else {
     const head = getHeadWithMesh(root, partId);
     code = head?.code ?? null;
+    exportLanguage = head?.language ?? "openscad";
   }
   if (!code) {
     return c.json({ error: "part has no code to export" }, 400);
   }
+  if (format === "step" && exportLanguage !== "build123d") {
+    return c.json(
+      { error: "STEP export requires a Build123D part (B-rep kernel)." },
+      400,
+    );
+  }
 
-  const rendered = await exportScad(code, spec.ext);
+  const rendered = await exportFor(exportLanguage, code, spec.ext);
   if (!rendered.ok || !rendered.data) {
     return c.json(
       {
-        error: "OpenSCAD export failed",
+        error: `${exportLanguage} export failed`,
         stderr: rendered.stderr || "unknown error",
       },
       400,
@@ -312,16 +328,37 @@ app.post("/api/parts/:id/revisions", async (c) => {
   if (!body || typeof body.code !== "string") {
     return c.json({ error: "code required" }, 400);
   }
-  const rev = createRevision(root, c.req.param("id"), {
+  const partId = c.req.param("id");
+  const language: BackendName =
+    body.language === "build123d" ? "build123d" : "openscad";
+
+  let mesh: { positions: number[] | Float32Array; triangleCount: number } | null = null;
+  let renderError: string | null = null;
+  const rendered = await renderFor(language, body.code);
+  if (rendered.ok && rendered.stl) {
+    const parsed = parseStl(rendered.stl);
+    if (parsed.triangleCount > MAX_TRIANGLES) {
+      renderError = `The model is ${parsed.triangleCount.toLocaleString()} triangles — too dense to preview. Saved the code without geometry.`;
+    } else {
+      mesh = parsed;
+    }
+  } else {
+    renderError =
+      rendered.stderr?.trim() ||
+      `${language === "build123d" ? "Build123D" : "OpenSCAD"} failed to render the saved code. Saved the code without geometry.`;
+  }
+
+  const rev = createRevision(root, partId, {
     code: body.code,
-    language: body.language ?? "openscad",
+    language,
     source: "manual",
     message: body.message?.trim() || "Manual edit",
     label: body.label?.trim() || null,
+    mesh,
   });
   if (!rev) return c.json({ error: "part not found" }, 404);
-  const meta = getPart(root, c.req.param("id"));
-  return c.json({ meta, rev }, 201);
+  const meta = getPart(root, partId);
+  return c.json({ meta, rev, renderError }, 201);
 });
 
 app.patch("/api/parts/:id/revisions/:revId", async (c) => {
@@ -384,17 +421,13 @@ app.post("/api/render", async (c) => {
   if (!body || typeof body.code !== "string") {
     return c.json({ ok: false, message: "code required" }, 400);
   }
-  if (body.language && body.language !== "openscad") {
-    return c.json({
-      ok: false,
-      message: `${body.language} rendering is not supported yet. Use OpenSCAD.`,
-    });
-  }
-  const rendered = await renderScad(body.code);
+  const language: BackendName =
+    body.language === "build123d" ? "build123d" : "openscad";
+  const rendered = await renderFor(language, body.code);
   if (!rendered.ok || !rendered.stl) {
     return c.json({
       ok: false,
-      message: "OpenSCAD failed to render the model.",
+      message: `${language === "build123d" ? "Build123D" : "OpenSCAD"} failed to render the model.`,
       stderr: rendered.stderr || "Unknown render error.",
     });
   }
@@ -421,32 +454,39 @@ function makeUpdateModelTool(opts: {
 }) {
   return tool({
     description:
-      "Update the CAD model. Provide the COMPLETE OpenSCAD script (not a diff); it will be executed and rendered to a mesh. Only call this in BUILD mode.",
+      "Update the CAD model. Provide the COMPLETE script for the active backend (not a diff); it will be executed and rendered to a mesh. Only call this in BUILD mode.",
     inputSchema: z.object({
       code: z
         .string()
-        .describe("The full, self-contained OpenSCAD script for the model."),
-      language: z.literal("openscad").describe("The modeling language."),
+        .describe("The full, self-contained script for the model (OpenSCAD or Build123D Python, matching the part's language)."),
+      language: z
+        .enum(["openscad", "build123d"])
+        .describe("The modeling language. Must match the active part's language."),
       message: z
         .string()
         .describe("A short user-facing description of what changed."),
     }),
-    execute: async ({ code, message }) => {
-      const rendered = await renderScad(code);
+    execute: async ({ code, language, message }) => {
+      const rendered = await renderFor(language, code);
       if (!rendered.ok || !rendered.stl) {
+        const backendLabel = language === "build123d" ? "Build123D" : "OpenSCAD";
         return {
           success: false,
           message:
-            "OpenSCAD failed to render the model. Read the stderr below — it names the line number of the problem. Fix that issue in the full script and call update_model again.",
+            `${backendLabel} failed to render the model. Read the stderr below — it names the line number of the problem. Fix that issue in the full script and call update_model again.`,
           stderr: rendered.stderr || "Unknown render error.",
           durationMs: rendered.durationMs,
         };
       }
       const mesh = parseStl(rendered.stl);
       if (mesh.triangleCount > MAX_TRIANGLES) {
+        const hint =
+          language === "build123d"
+            ? "Use coarser mesh tolerances, simplify the geometry, or use fewer repeated features"
+            : "Reduce $fn, simplify the geometry, or use fewer repeated features";
         return {
           success: false,
-          message: `The model is ${mesh.triangleCount.toLocaleString()} triangles — too dense to handle smoothly. Reduce $fn, simplify the geometry, or use fewer repeated features, then call update_model again.`,
+          message: `The model is ${mesh.triangleCount.toLocaleString()} triangles — too dense to handle smoothly. ${hint}, then call update_model again.`,
           stderr: "",
           durationMs: rendered.durationMs,
         };
@@ -460,13 +500,13 @@ function makeUpdateModelTool(opts: {
           const created = createPart(opts.workspaceRoot, {
             name: "Untitled",
             type: "part",
-            language: "openscad",
+            language,
           });
           partId = created.id;
         }
         const rev = createRevision(opts.workspaceRoot, partId, {
           code,
-          language: "openscad",
+          language,
           source: "chat",
           message: message ?? null,
           mesh: {

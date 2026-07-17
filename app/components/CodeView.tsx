@@ -17,7 +17,7 @@ export function CodeView() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const canRender = language === "openscad";
+  const canRender = true;
 
   const handleRender = useCallback(async () => {
     setError(null);
@@ -77,11 +77,7 @@ export function CodeView() {
             size="icon-xs"
             onClick={() => void handleRender()}
             disabled={rendering || !canRender}
-            title={
-              canRender
-                ? "Render (⌘/Ctrl+Enter)"
-                : "build123d rendering is not supported yet"
-            }
+            title="Render (⌘/Ctrl+Enter)"
             aria-label="Render model"
           >
             {rendering ? (

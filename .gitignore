@@ -15,3 +15,7 @@
 # Electron
 /dist-electron/
 /release/
+
+# Self-contained Build123D Python runtime (downloaded via scripts/setup-python.sh)
+/server/python/
+/server/python-*/
