@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { BackendName } from "./types";
 
 export interface AppConfig {
   workspaceRoot: string | null;
@@ -14,6 +15,7 @@ export interface AppConfig {
 
 export interface AppSettings {
   model?: string | null;
+  defaultBackend?: BackendName;
   panelSplit?: number;
   viewMode?: string;
   gridVisible?: boolean;

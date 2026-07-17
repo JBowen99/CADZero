@@ -115,14 +115,13 @@ export function getPart(
 export function updatePartMeta(
   workspaceRoot: string,
   id: string,
-  patch: Partial<Pick<PartMeta, "name" | "type" | "language">>,
+  patch: Partial<Pick<PartMeta, "name" | "type">>,
 ): PartMeta | null {
   const file = partPath(workspaceRoot, id);
   if (!existsSync(file)) return null;
   const db = openPartDb(file);
   if (patch.name !== undefined) setMeta(db, "name", patch.name);
   if (patch.type !== undefined) setMeta(db, "type", patch.type);
-  if (patch.language !== undefined) setMeta(db, "language", patch.language);
   setMeta(db, "updated_at", Date.now());
   return readMeta(db);
 }
@@ -214,6 +213,7 @@ export function createRevision(
   const now = Date.now();
   const meshBlobId =
     input.meshBlobId ?? (input.mesh ? storeMeshBlob(db, input.mesh) : null);
+  const language = meta.language;
 
   db.prepare(
     `INSERT INTO revisions(rev_id, parent_rev_id, code, language, created_at, source, message, mesh_blob_id, label)
@@ -222,7 +222,7 @@ export function createRevision(
     revId,
     parentRevId,
     input.code,
-    input.language,
+    language,
     now,
     input.source,
     input.message ?? null,
@@ -237,7 +237,7 @@ export function createRevision(
     revId,
     parentRevId,
     code: input.code,
-    language: input.language,
+    language,
     createdAt: now,
     source: input.source,
     message: input.message ?? null,

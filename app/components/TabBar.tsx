@@ -11,7 +11,7 @@ export function TabBar() {
   const activeClientId = useDocumentsStore((s) => s.activeClientId);
   const setActive = useDocumentsStore((s) => s.setActive);
   const closeTab = useDocumentsStore((s) => s.closeTab);
-  const newTab = useDocumentsStore((s) => s.newTab);
+  const setNewPartDialogOpen = useDocumentsStore((s) => s.setNewPartDialogOpen);
   const chatStatus = useChatStatus();
   const busy = isChatBusy(chatStatus);
   const isBuilding = useModelStore((s) => s.isBuilding);
@@ -48,6 +48,12 @@ export function TabBar() {
                 <span className="size-1.5 shrink-0 rounded-full bg-primary" />
               ) : null}
               <span className="max-w-[150px] truncate">{label}</span>
+              {doc.language === "build123d" && (
+                <span
+                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                  title="Build123D"
+                />
+              )}
               {doc.previewingRevId && (
                 <History className="size-3 shrink-0 text-primary" />
               )}
@@ -69,7 +75,7 @@ export function TabBar() {
         variant="ghost"
         size="icon-sm"
         className="h-7 w-7 shrink-0"
-        onClick={() => newTab()}
+            onClick={() => setNewPartDialogOpen(true)}
         aria-label="New tab"
       >
         <Plus className="size-4" />
