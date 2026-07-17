@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { UIMessage } from "ai";
-import type { BackendName, TriangleMesh } from "~/types";
+import type { BackendName, Topology, TriangleMesh } from "~/types";
 import { useChatState } from "~/lib/ai-chat";
-import { meshUrl } from "~/lib/api";
+import { meshUrl, topologyUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
@@ -52,6 +52,16 @@ async function fetchMesh(id: string): Promise<TriangleMesh> {
   return { positions, triangleCount };
 }
 
+async function fetchTopology(id: string): Promise<Topology | null> {
+  try {
+    const res = await fetch(topologyUrl(id));
+    if (!res.ok) return null;
+    return (await res.json()) as Topology;
+  } catch {
+    return null;
+  }
+}
+
 export function useModelSync() {
   const { messages } = useChatState();
   const processedRef = useRef<Set<string>>(new Set());
@@ -94,10 +104,15 @@ export function useModelSync() {
     const { output, input } = lastResolved;
     if (output?.success && output.meshId && input?.code) {
       const language: BackendName = input.language ?? "openscad";
-      void fetchMesh(output.meshId).then((mesh) => {
-        useModelStore.getState().setModel(mesh, input.code!, language);
+      void fetchMesh(output.meshId).then(async (mesh) => {
+        const topology =
+          language === "build123d" ? await fetchTopology(output.meshId!) : null;
+        useModelStore
+          .getState()
+          .setModel(mesh, input.code!, language, topology);
         useDocumentsStore.getState().patchActiveDoc({
           mesh,
+          topology,
           cadCode: input.code!,
           meshCode: input.code!,
           language,

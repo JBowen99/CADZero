@@ -3,6 +3,7 @@ import type {
   BackendName,
   ExportFormat,
   ExportResult,
+  Topology,
   TriangleMesh,
 } from "~/types";
 import { exportUrl } from "~/lib/api";
@@ -16,6 +17,7 @@ export interface ExportContext {
 
 interface ModelState {
   mesh: TriangleMesh | null;
+  topology: Topology | null;
   cadCode: string | null;
   language: BackendName;
   backend: BackendName;
@@ -28,6 +30,7 @@ interface ModelState {
     mesh: TriangleMesh,
     cadCode: string,
     language: BackendName,
+    topology?: Topology | null,
   ) => void;
   setCode: (cadCode: string, language: BackendName) => void;
   setCadCode: (cadCode: string) => void;
@@ -39,6 +42,7 @@ interface ModelState {
 
 export const useModelStore = create<ModelState>((set) => ({
   mesh: null,
+  topology: null,
   cadCode: null,
   language: "openscad",
   backend: "openscad",
@@ -49,9 +53,11 @@ export const useModelStore = create<ModelState>((set) => ({
 
   setBackend: (b) => set({ backend: b }),
 
-  setModel: (mesh, cadCode, language) => set({ mesh, cadCode, language }),
+  setModel: (mesh, cadCode, language, topology = null) =>
+    set({ mesh, cadCode, language, topology }),
 
-  setCode: (cadCode, language) => set({ cadCode, language, mesh: null }),
+  setCode: (cadCode, language) =>
+    set({ cadCode, language, mesh: null, topology: null }),
 
   setCadCode: (cadCode) => set({ cadCode }),
 
@@ -88,7 +94,7 @@ export const useModelStore = create<ModelState>((set) => ({
     }
   },
 
-  clear: () => set({ mesh: null, cadCode: null }),
+  clear: () => set({ mesh: null, topology: null, cadCode: null }),
 }));
 
 export const currentBackend = () => useModelStore.getState().backend;

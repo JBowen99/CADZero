@@ -16,11 +16,142 @@ worker is killed (e.g. a render timeout), the backend respawns it next time.
 
 import io
 import json
+import struct
 import sys
 import traceback
+from array import array
 
 import build123d
 from build123d import Compound, Shape, export_brep, export_step, export_stl
+from OCP.BRepMesh import BRepMesh_IncrementalMesh
+from OCP.BRep import BRep_Tool
+from OCP.TopLoc import TopLoc_Location
+from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.GCPnts import GCPnts_TangentialDeflection
+
+LINEAR_DEFLECTION = 0.1
+ANGULAR_DEFLECTION = 0.5
+
+
+def tessellate(result, out_path):
+    shape = result.wrapped
+    BRepMesh_IncrementalMesh(
+        shape, LINEAR_DEFLECTION, False, ANGULAR_DEFLECTION
+    ).Perform()
+
+    positions = []
+    faces_out = []
+    tri_index = 0
+
+    for fi, face in enumerate(result.faces()):
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation_s(face.wrapped, loc)
+        if tri is None:
+            continue
+        trsf = loc.Transformation()
+        n_nodes = tri.NbNodes()
+        node_pts = []
+        for i in range(1, n_nodes + 1):
+            p = tri.Node(i)
+            p.Transform(trsf)
+            node_pts.append((p.X(), p.Y(), p.Z()))
+        start_tri = tri_index
+        fnx = fny = fnz = 0.0
+        farea = 0.0
+        fcx = fcy = fcz = 0.0
+        for t in range(1, tri.NbTriangles() + 1):
+            tri_obj = tri.Triangle(t)
+            ia, ib, ic = tri_obj.Get()
+            ax, ay, az = node_pts[ia - 1]
+            bx, by, bz = node_pts[ib - 1]
+            cx, cy, cz = node_pts[ic - 1]
+            positions.extend((ax, ay, az, bx, by, bz, cx, cy, cz))
+            tri_index += 1
+            ux, uy, uz = bx - ax, by - ay, bz - az
+            vx, vy, vz = cx - ax, cy - ay, cz - az
+            nx = uy * vz - uz * vy
+            ny = uz * vx - ux * vz
+            nz = ux * vy - uy * vx
+            area = 0.5 * (nx * nx + ny * ny + nz * nz) ** 0.5
+            fnx += nx
+            fny += ny
+            fnz += nz
+            farea += area
+            cenx = (ax + bx + cx) / 3.0
+            ceny = (ay + by + cy) / 3.0
+            cenz = (az + bz + cz) / 3.0
+            fcx += cenx * area
+            fcy += ceny * area
+            fcz += cenz * area
+        nlen = (fnx * fnx + fny * fny + fnz * fnz) ** 0.5
+        if nlen > 0:
+            fnx /= nlen
+            fny /= nlen
+            fnz /= nlen
+        if farea > 0:
+            fcx /= farea
+            fcy /= farea
+            fcz /= farea
+        faces_out.append(
+            {
+                "id": "f%d" % fi,
+                "startTri": start_tri,
+                "endTri": tri_index,
+                "normal": [round(fnx, 6), round(fny, 6), round(fnz, 6)],
+                "area": round(farea, 6),
+                "center": [round(fcx, 4), round(fcy, 4), round(fcz, 4)],
+            }
+        )
+
+    edges_out = []
+    for ei, edge in enumerate(result.edges()):
+        curve = BRepAdaptor_Curve(edge.wrapped)
+        sampler = GCPnts_TangentialDeflection(curve, 0.2, ANGULAR_DEFLECTION)
+        n_pts = sampler.NbPoints()
+        poly = []
+        length = 0.0
+        prev = None
+        for i in range(1, n_pts + 1):
+            p = sampler.Value(i)
+            x, y, z = p.X(), p.Y(), p.Z()
+            poly.extend((x, y, z))
+            if prev is not None:
+                dx, dy, dz = x - prev[0], y - prev[1], z - prev[2]
+                length += (dx * dx + dy * dy + dz * dz) ** 0.5
+            prev = (x, y, z)
+        edges_out.append(
+            {
+                "id": "e%d" % ei,
+                "positions": [round(v, 4) for v in poly],
+                "length": round(length, 6),
+                "adjacentFaceIds": [],
+            }
+        )
+
+    verts_out = []
+    for vi, vert in enumerate(result.vertices()):
+        c = vert.center()
+        verts_out.append(
+            {
+                "id": "v%d" % vi,
+                "position": [round(c.X, 4), round(c.Y, 4), round(c.Z, 4)],
+                "adjacentEdgeIds": [],
+                "adjacentFaceIds": [],
+            }
+        )
+
+    triangle_count = tri_index
+    pos_arr = array("f", positions)
+    if sys.byteorder == "big":
+        pos_arr.byteswap()
+    with open(out_path, "wb") as f:
+        f.write(struct.pack("<I", triangle_count))
+        pos_arr.tofile(f)
+
+    with open(out_path + ".topo.json", "w") as f:
+        json.dump(
+            {"faces": faces_out, "edges": edges_out, "vertices": verts_out}, f
+        )
 
 
 def run_request(req):
@@ -59,7 +190,9 @@ def run_request(req):
             % type(result).__name__,
         }
 
-    if fmt == "stl":
+    if fmt == "tessellate":
+        tessellate(result, out_path)
+    elif fmt == "stl":
         export_stl(result, out_path)
     elif fmt == "step":
         export_step(result, out_path)

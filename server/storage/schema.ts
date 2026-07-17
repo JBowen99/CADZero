@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_msg_id);
 CREATE TABLE IF NOT EXISTS meshes (
   blob_id        TEXT PRIMARY KEY,
   triangle_count INTEGER NOT NULL,
-  positions      BLOB NOT NULL
+  positions      BLOB NOT NULL,
+  topology_json  TEXT
 );
 `;

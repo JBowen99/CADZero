@@ -1,4 +1,5 @@
 import type { BackendName } from "./backend-types";
+import type { TopologySelection } from "./renderer/topology";
 
 export type ChatMode = "plan" | "chat" | "build";
 
@@ -62,6 +63,7 @@ export function buildInstructions(
   mode: ChatMode,
   cadCode: string | null,
   language: BackendName,
+  selection: TopologySelection[] = [],
 ): string {
   const sections = [BASE_PROMPTS[language], "", MODE_PROMPTS[mode]];
   if (cadCode && cadCode.trim()) {
@@ -74,6 +76,14 @@ export function buildInstructions(
     );
   } else {
     sections.push("", "There is no current model yet — the next Build creates the first one.");
+  }
+  if (selection.length > 0) {
+    const lines = selection.map((s) => `- ${s.label} (${s.summary})`);
+    sections.push(
+      "",
+      "The user has selected these entities on the current model. Treat them as the EXPLICIT target of any operation they ask for (e.g. 'fillet this' = fillet the selected edge(s); 'drill here' = put a hole on the selected face at its center):",
+      lines.join("\n"),
+    );
   }
   return sections.join("\n");
 }

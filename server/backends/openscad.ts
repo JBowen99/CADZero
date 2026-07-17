@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../env";
+import { parseStl } from "../renderer/stl";
 import type { ExportResult, RenderResult } from "./types";
 
 export type { ExportResult, RenderResult } from "./types";
@@ -96,7 +97,11 @@ async function runScadToOutput(
 
 export async function renderScad(code: string): Promise<RenderResult> {
   const r = await runScadToOutput(code, "stl");
-  return { ok: r.ok, stl: r.out, stderr: r.stderr, durationMs: r.durationMs };
+  if (!r.ok || !r.out) {
+    return { ok: false, stderr: r.stderr, durationMs: r.durationMs };
+  }
+  const mesh = parseStl(r.out);
+  return { ok: true, mesh, topology: null, stderr: r.stderr, durationMs: r.durationMs };
 }
 
 export async function exportScad(

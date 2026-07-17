@@ -19,3 +19,7 @@
 # Self-contained Build123D Python runtime (downloaded via scripts/setup-python.sh)
 /server/python/
 /server/python-*/
+
+# Python bytecode
+__pycache__/
+*.pyc

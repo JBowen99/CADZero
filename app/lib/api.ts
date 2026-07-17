@@ -13,6 +13,7 @@ const API_BASE = AI_API_URL.replace(/\/chat\/?$/, "");
 
 export const chatApiUrl = AI_API_URL;
 export const meshUrl = (id: string) => `${API_BASE}/mesh/${id}`;
+export const topologyUrl = (id: string) => `${API_BASE}/topology/${id}`;
 export const renderUrl = `${API_BASE}/render`;
 export const capabilitiesUrl = `${API_BASE}/capabilities`;
 export const modelsUrl = `${API_BASE}/models`;
@@ -22,6 +23,8 @@ export const partsUrl = `${API_BASE}/parts`;
 export const partUrl = (id: string) => `${API_BASE}/parts/${id}`;
 export const partMeshUrl = (id: string, blobId: string) =>
   `${API_BASE}/parts/${id}/meshes/${blobId}`;
+export const partTopologyUrl = (id: string, blobId: string) =>
+  `${API_BASE}/parts/${id}/topology/${blobId}`;
 export const exportUrl = (
   id: string,
   format: string,
