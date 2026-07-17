@@ -211,7 +211,7 @@ function Axes({ length = AXIS_LENGTH }: { length?: number }) {
 const HIGHLIGHT_COLOR = "#eab308";
 const HOVER_COLOR = "#ffffff";
 const VERTEX_RADIUS_PX = 12;
-const EDGE_RADIUS_PX = 8;
+const EDGE_RADIUS_PX = 10;
 const DRIFT_PX = 5;
 
 function FaceHighlight({
@@ -475,27 +475,63 @@ function SelectionPicker({
 
       if (!cand && kinds.includes("edge")) {
         let bestId: string | null = null;
-        let bestPos: [number, number, number] | null = null;
+        let bestA: [number, number, number] | null = null;
+        let bestB: [number, number, number] | null = null;
+        let bestT = 0;
         let bestD = EDGE_RADIUS_PX;
         for (const e of topology.edges) {
+          let prevScreen: { x: number; y: number } | null = null;
+          let prevWorld: [number, number, number] | null = null;
           for (let i = 0; i < e.positions.length; i += 3) {
-            const p: [number, number, number] = [
+            const w: [number, number, number] = [
               e.positions[i],
               e.positions[i + 1],
               e.positions[i + 2],
             ];
-            const sp = projectToScreen(p, rect);
-            if (sp.z < -1 || sp.z > 1) continue;
-            const d = Math.hypot(sp.x - cur.x, sp.y - cur.y);
-            if (d < bestD) {
-              bestD = d;
-              bestId = e.id;
-              bestPos = p;
+            const sp = projectToScreen(w, rect);
+            if (sp.z < -1 || sp.z > 1) {
+              prevScreen = null;
+              prevWorld = null;
+              continue;
             }
+            if (prevScreen && prevWorld) {
+              const dx = sp.x - prevScreen.x;
+              const dy = sp.y - prevScreen.y;
+              const denom = dx * dx + dy * dy;
+              const t =
+                denom > 1e-6
+                  ? Math.max(
+                      0,
+                      Math.min(
+                        1,
+                        ((cur.x - prevScreen.x) * dx +
+                          (cur.y - prevScreen.y) * dy) /
+                          denom,
+                      ),
+                    )
+                  : 0;
+              const px = prevScreen.x + t * dx;
+              const py = prevScreen.y + t * dy;
+              const d = Math.hypot(px - cur.x, py - cur.y);
+              if (d < bestD) {
+                bestD = d;
+                bestId = e.id;
+                bestA = prevWorld;
+                bestB = w;
+                bestT = t;
+              }
+            }
+            prevScreen = { x: sp.x, y: sp.y };
+            prevWorld = w;
           }
         }
-        if (bestId && bestPos && !occluded(bestPos)) {
-          cand = { kind: "edge", id: bestId };
+        if (bestId && bestA && bestB) {
+          const world: [number, number, number] = [
+            bestA[0] + bestT * (bestB[0] - bestA[0]),
+            bestA[1] + bestT * (bestB[1] - bestA[1]),
+            bestA[2] + bestT * (bestB[2] - bestA[2]),
+          ];
+          if (!occluded(world)) cand = { kind: "edge", id: bestId };
         }
       }
 
