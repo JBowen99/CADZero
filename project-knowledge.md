@@ -24,16 +24,16 @@ and per-part chat persistence. **The Code tab is now a full editor** (CodeMirror
 6): edit code, Render to preview the mesh (ephemeral, no checkpoint), ⌘/Ctrl+S
 to save the code as a new `manual` revision, with dirty indicators, an
 out-of-sync viewport warning, and a discard/save guard before builds/restores.
-Build123D *rendering* is still deferred (the editor offers a Python grammar but
-only OpenSCAD can execute). See `AI CAD MVP Project Specification.md` for the
-full vision.
+**Both CAD kernels are live** (OpenSCAD + Build123D), backend type is locked at
+creation, and Build123D parts support **face/edge/vertex selection** as chat
+context. See `AI CAD MVP Project Specification.md` for the full vision.
 
-> **Update (Build123D backend):** Build123D rendering is now **live**. The app
-> has **two interchangeable CAD kernels** — OpenSCAD (external CLI, Z-up) and
-> Build123D (Python over the OpenCascade/OCP B-rep kernel, **Y-up native**, and
-> the only backend that can export **STEP**). All render/export paths dispatch
-> through `server/backends/index.ts` (`renderFor/exportFor` by language); the AI
-> `update_model` tool schema is now `z.enum(["openscad","build123d"])`. Build123D
+> **Build123D backend (Phases 1–3, all live):** The app has **two
+> interchangeable CAD kernels** — OpenSCAD (external CLI, Z-up) and Build123D
+> (Python over the OpenCascade/OCP B-rep kernel, **Y-up native**, and the only
+> backend that can export **STEP**). All render/export paths dispatch through
+> `server/backends/index.ts` (`renderFor/exportFor` by language); the AI
+> `update_model` tool schema is `z.enum(["openscad","build123d"])`. Build123D
 > runs in a **persistent Python worker** (`server/backends/build123d_worker.py`,
 > managed by `build123d.ts`) — the ~5–10s OCP import is paid once at worker
 > startup, then every render reuses the warm process (subsequent renders are
@@ -45,13 +45,54 @@ full vision.
 > self-contained CPython 3.12 (+ `build123d`/`OCP`) is fetched into
 > `server/python/` via **`pnpm setup:python`** (`scripts/setup-python.sh`,
 > python-build-standalone); resolution is `PYTHON_PATH` env → bundled
-> `<cwd>/server/python/bin/python3` → system `python3` fallback. In the UI,
-> switching the Toolbar backend selector on an **unsaved** tab sets that doc's
-> language; it's locked once a part is created (formal immutability + creation
-> dialog lands in the next phase). The viewport applies a `-π/2` X rotation to
-> **OpenSCAD** meshes (Z-up→Y-up) but **no rotation** to Build123D meshes
-> (`Viewport.tsx` `language`-dependent group rotation). STEP export is gated to
-> Build123D parts (OpenSCAD→STEP returns HTTP 400).
+> `<cwd>/server/python/bin/python3` → system `python3` fallback. The viewport
+> applies a `-π/2` X rotation to **OpenSCAD** meshes (Z-up→Y-up) but **no
+> rotation** to Build123D meshes (`Viewport.tsx` language-dependent group
+> rotation). STEP export is gated to Build123D parts (OpenSCAD→STEP returns
+> HTTP 400).
+>
+> **Render contract (Phase 3):** `RenderResult` is `{ ok; mesh?: TriangleMesh;
+> topology?: Topology | null; stderr; durationMs }` (the raw `stl` buffer is
+> retired). `renderScad` parses STL internally (`topology: null`);
+> `renderBuild123d` **tessellates** the shape once with `BRepMesh` (via the
+> worker's `tessellate` mode) and emits mesh + topology together — so a raycast
+> `faceIndex` maps exactly to a B-rep face (no STL/BRepMesh alignment risk).
+> The worker walks `part.faces()/.edges()/.vertices()`: each face's
+> `BRep_Tool.Triangulation_s` → contiguous `[startTri, endTri]` triangle range
+> + normal/area/center; edges → polylines (`GCPnts`); vertices → points. **It
+> honors face orientation** — REVERSED faces get their triangle winding swapped
+> (`face.wrapped.Orientation() == TopAbs_REVERSED` → swap two node indices) so
+> every triangle is CCW-from-outward; without this, hole walls and some box
+> faces render inside-out (the mesh worker computes normals from winding).
+> Output: `<id>.bin` (the existing binary mesh frame) + `<id>.topo.json`
+> (Topology sidecar).
+>
+> **Backend type is immutable (Phase 2):** chosen once in `NewPartDialog` at
+> part creation (remembers the last pick via `AppSettings.defaultBackend`;
+> grays out Build123D if `useCapabilitiesStore` says the runtime is absent),
+> then locked for the part's life. `PATCH /api/parts/:id` with a `language`
+> returns **409**; `createRevision` forces every revision to `meta.language`;
+> `makeUpdateModelTool` rejects a mismatched-language tool call so the model
+> self-corrects. The Toolbar shows a **read-only badge** (no runtime switcher).
+> `newTab(language)` takes the language; all "New part" entry points open the
+> dialog.
+>
+> **Topology selection as chat context (Phase 3):** on Build123D parts the
+> viewport has a select-mode toolbar (bottom-left): **Off / All / Precise**;
+> Precise reveals a Face/Edge/Vertex radio. A `SelectionPicker` (inside the
+> Canvas) resolves the entity under the cursor on pointermove — vertices
+> (screen-space ~12px) **>** edges (~10px, point-to-**segment** distance so
+> straight edges are hittable along their length) **>** face (raycast) — with
+> occlusion respected (a depth raycast against the mesh hides/entities behind
+> the solid). Hover-preview highlights the candidate **before** click (white);
+> click toggles it into multi-select (amber). Vertex highlight is a
+> **screen-space DOM dot** (drei `<Html>`, constant pixel size on zoom —
+> CAD-style, not a 3D sphere); edge = yellow `<Line>`; face = yellow overlay.
+> `useSelectionStore` holds the array (multi, no cap); the chat transport
+> injects `selection` into every request body (same pattern as
+> cadCode/mode) and `buildInstructions` appends a "User has selected:" block.
+> Selection is transient (clears on send / tab-switch / mesh change). Disabled
+> for OpenSCAD parts (no B-rep) and in wireframe view (no mesh to raycast).
 
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
 > deliberately moved to **TypeScript + HTTP streaming** (Vercel AI SDK). The CAD
@@ -62,7 +103,7 @@ full vision.
 
 ```
 +----------------------------------------------------------+
-|  Toolbar (app name, backend selector, export, theme)     |
+|  Toolbar (app name, backend badge, export, theme)     |
 +----------------------------------+-----------------------+
 |  Part tabs (left panel only)     | Chat|Code|History tabs|
 +----------------------------------+-----------------------+
@@ -97,7 +138,7 @@ intentionally deferred — a storage layer will be added later.
 | Packaging        | electron-builder (Linux: AppImage + deb)               |
 | AI chat backend  | **Hono** (`server/`) + **Vercel AI SDK v7** + OpenRouter |
 | Tool schemas     | **zod 4** (added for AI SDK `tool()` input schemas)        |
-| CAD kernel       | **OpenSCAD** (external CLI binary, spawned by Node)        |
+| CAD kernel       | **OpenSCAD** (external CLI) **and** Build123D (OpenCascade/OCP, spawned Python + persistent worker) |
 | Persistence      | **better-sqlite3** — one `.cadz` SQLite file per part (`server/storage/`) |
 
 **Path alias:** `~/*` → `./app/*`
@@ -108,6 +149,7 @@ intentionally deferred — a storage layer will be added later.
 
 ```bash
 pnpm install          # install deps
+pnpm setup:python     # fetch the Build123D Python runtime (optional, ~200MB)
 pnpm dev              # web dev server on http://localhost:5173
 pnpm dev:server       # AI chat backend (Hono) on http://localhost:8787
 pnpm dev:all          # backend + web dev server together (concurrently)
@@ -126,9 +168,9 @@ pnpm package:linux    # build + electron-builder -> release/*.AppImage / *.deb
 app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
-│   ├── Toolbar.tsx
-│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync" when the shown mesh ≠ current code (click → re-render)
-│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; attachments render ABOVE the textarea; mode + model Selects with labels (container-query-hidden when the panel is narrow) + attach/send icon buttons (Radix tooltips) below the input; vision guard strips images on send + red warning
+│   ├── Toolbar.tsx          # app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), and a READ-ONLY language badge (locked at creation — the old runtime switcher is gone)
+│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio; SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay
+│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SELECTION chips + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage tool-call cards)
 │   ├── CodeEditor.tsx       # CodeMirror 6 wrapper (forwardRef exposing undo/redo; cpp() grammar for OpenSCAD, python() for build123d; Mod-Enter → onRender; dark/light via next-themes). Used only by CodeView
@@ -138,14 +180,15 @@ app/
 │   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
 │   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt. **Native scroll** (NOT radix ScrollArea — its overlay scrollbar clipped the right edge; uses the same `overflow-y-auto overflow-x-hidden` + `min-w-0` flex pattern as ChatPanel). List items show a **version number** (`v1`=oldest … `vN`=newest, computed as `revs.length - index` since the list is newest-first) instead of per-source icons (source type still shown in the subtitle text). `isHead`/"current" badge = `rev.revId === activeMeta.headRevId`.
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
+│   ├── NewPartDialog.tsx    # creation-time backend chooser (OpenSCAD/Build123D tiles; pre-selects AppSettings.defaultBackend; grays build123d if useCapabilitiesStore says unavailable); drives newTab(language) + setDefaultBackend
 │   ├── ExportDialog.tsx     # Export modal: non-dismissable while exporting (no X, Escape/overlay suppressed); indeterminate Loader2 spinner + filename + live elapsed-seconds counter; driven by useModelStore.exportJob
 │   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
 │   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
 │   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
-│   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / checkpointUrl / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
+│   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language/partId/selection
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / checkpointUrl / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
@@ -157,14 +200,16 @@ app/
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
 ├── store/
-│   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, isRendering, isExporting + exportJob {filename,format}|null, setModel, setCode, setCadCode (mesh-safe — edits don't clear the viewport), setBuilding, setRendering, clear, exportModel(format, ctx)
+│   ├── useModelStore.ts     # mesh (TriangleMesh), topology (Topology|null), cadCode, language, backend, isBuilding, isRendering, isExporting + exportJob {filename,format}|null, setModel (mesh+cadCode+language+topology), setCode (clears mesh+topology), setCadCode (mesh-safe — edits don't clear the viewport), setBuilding, setRendering, clear, exportModel(format, ctx)
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
-│   ├── useSettingsStore.ts  # model + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
+│   ├── useSettingsStore.ts  # model + defaultBackend + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
+│   ├── useCapabilitiesStore.ts # openscad/build123d {ok,version?,error?}; loaded once at boot (GET /api/capabilities); drives NewPartDialog build123d gating
+│   ├── useSelectionStore.ts # selection: TopologySelection[] (multi, no cap); toggle/remove/clear; read by the chat transport + ChatPanel chips; cleared on send/tab-switch/mesh-change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace. **init() retries with backoff** (500ms→1s→2s→4s, ~8s cap) so it survives the dev:all cold-start race where Vite is up before the API server; initialized only flips after success OR retry exhaustion (so the WorkspaceSetup dialog stays hidden during retries and auto-dismisses once :8787 answers)
-│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId; denormalized activeId/activeMeta/previewingRevId; each OpenDoc also carries cadCode + meshCode (code that produced mesh → drives out-of-sync) + codeDirty; actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview/restore/checkpoint (FIFO cap 8)
+│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId + newPartDialogOpen; denormalized activeId/activeMeta/previewingRevId; each OpenDoc carries cadCode + meshCode + topology + language + codeDirty; newTab(language) (language chosen in NewPartDialog, immutable for the doc's life); actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode (fetches topology for build123d)/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview (fetches topology)/restore (fetches topology)/checkpoint (FIFO cap 8)
 │   └── useConnectionStore.ts
 ├── types/
-│   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, ModelingBackend, etc.
+│   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, Topology (FaceGroup/EdgeGroup/VertexNode), TopologySelection (kind/id/label/summary), ModelingBackend, etc.
 ├── routes/
 │   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync + useTabChatSync; boots (settings+workspace), reopens ALL last-open tabs (first active, rest background), syncs lastOpenDocIds from openDocs
 │   └── +types/*             # AUTO-GENERATED by react-router typegen (gitignored)
@@ -175,27 +220,28 @@ app/
 
 ```
 server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap), GET /api/models, /api/mesh/:id (BINARY float32 frame), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual"; re-renders geometry for both backends), GET /api/parts/:id/export/:format (stl|obj|3mf|step; step is build123d-only; re-renders code via the part's backend, streams bytes; ?revId= exports a specific revision), /api/capabilities (openscad + build123d), /api/health
+├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap, reads `selection` for the prompt), GET /api/models, /api/mesh/:id (BINARY float32 frame), /api/topology/:id (Topology JSON for a live build), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual"; renders geometry via the part's LOCKED language), GET /api/parts/:id/meshes/:blobId + /api/parts/:id/topology/:blobId (persisted mesh + topology), GET /api/parts/:id/export/:format (stl|obj|3mf|step; step is build123d-only), PATCH /api/parts/:id → 409 on `language` (immutable), /api/capabilities (openscad + build123d), /api/health
 ├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
 ├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH / PYTHON_PATH; assertConfig()
 ├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
 ├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
 ├── backend-types.ts          # BackendName = "openscad" | "build123d"; SUPPORTED_BACKENDS (both)
-├── system-prompt.ts          # BASE_PROMPTS (per-language: OPENSCAD Z-up, BUILD123D Y-up + `result=` contract) + buildInstructions(mode, cadCode, language); BUILD retry-on-error policy
-├── backends/                 # CAD kernels — same RenderResult/ExportResult contract
-│   ├── types.ts              # shared RenderResult { ok; stl?; stderr; durationMs } / ExportResult { ok; data?; ... }
+├── system-prompt.ts          # BASE_PROMPTS (per-language: OPENSCAD Z-up, BUILD123D Y-up + `result=` contract) + buildInstructions(mode, cadCode, language, selection) — appends a "User has selected:" block when selection is non-empty; BUILD retry-on-error policy
+├── backends/                 # CAD kernels — shared RenderResult/ExportResult contract
+│   ├── types.ts              # RenderResult { ok; mesh?: TriangleMesh; topology?: Topology | null; stderr; durationMs } / ExportResult { ok; data?; ... }
 │   ├── index.ts              # DISPATCH: renderFor/exportFor(language, code[, ext]) → openscad or build123d
-│   ├── openscad.ts           # renderScad(code)→STL Buffer; exportScad(code, ext); checkOpenScad()
-│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d/exportBuild123d; checkBuild123d (one-shot spawn); resolvePythonBin() = PYTHON_PATH → <cwd>/server/python/bin/python3 → python3
-│   └── build123d_worker.py   # long-lived Python proc: imports build123d/OCP ONCE; reads {"id,code,out_path,format"} lines, execs code in a fresh namespace, exports `result` to out_path, replies {"id,ok,error?}; stray stdout captured; ready handshake {"ready,version}
+│   ├── openscad.ts           # renderScad(code)→parses STL internally → {mesh, topology:null}; exportScad(code, ext); checkOpenScad()
+│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d uses worker.tessellate → {mesh, topology}; exportBuild123d; checkBuild123d; resolvePythonBin() = PYTHON_PATH → <cwd>/server/python/bin/python3 → python3
+│   └── build123d_worker.py   # long-lived Python proc: imports build123d/OCP ONCE; reads {"id,code,out_path,format"} lines; `tessellate` mode meshes once (BRepMesh_IncrementalMesh), honors face orientation (REVERSED → swap winding), writes <id>.bin (mesh frame) + <id>.topo.json (Topology: per-face tri ranges + edges + vertices); stl/step/brep via export_*; stray stdout captured; ready handshake
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
-├── mesh-store.ts             # ephemeral Map<meshId, TriangleMesh> (LRU, capped 64)
+├── renderer/topology.ts      # Topology types (FaceGroup/EdgeGroup/VertexNode) + TopologySelection DTO (kind/id/label/summary)
+├── mesh-store.ts             # ephemeral Map<meshId, {mesh, topology}> (LRU, capped 64); storeMesh/getMesh/getTopology
 ├── storage/                  # PERSISTENCE — .cadz sqlite part files + workspace + settings (Phase 0+)
-│   ├── schema.ts             # SCHEMA_SQL + SCHEMA_VERSION (meta kv, revisions, messages, meshes)
-│   ├── db.ts                 # openPartDb(): LRU cache (16) of better-sqlite3 conns; journal_mode=DELETE (self-contained .cadz); migrate()
-│   ├── types.ts              # PartType, PartMeta, RevisionRecord, MessageRecord, StoredMesh, sheet-metal/assembly shapes
-│   ├── parts.ts              # part CRUD + createRevision (auto-advances head, optional cached mesh), listRevisions, getMeshBlob, upsertMessage
-│   ├── config.ts             # getWorkspaceRoot() (WORKSPACE_DIR env ?? app config), atomic config.json + <workspace>/.cadzero/settings.json
+│   ├── schema.ts             # SCHEMA_SQL + SCHEMA_VERSION=3 (meta kv, revisions, messages, meshes[+topology_json])
+│   ├── db.ts                 # openPartDb(): LRU cache (16) of better-sqlite3 conns; journal_mode=DELETE (self-contained .cadz); migrate() — v2→v3 adds meshes.topology_json
+│   ├── types.ts              # PartType, PartMeta, RevisionRecord, MessageRecord, StoredMesh{+topology}, sheet-metal/assembly shapes
+│   ├── parts.ts              # part CRUD + createRevision (auto-advances head; FORCES language=meta.language; optional cached mesh+topology), listRevisions, getMeshBlob (returns topology too), upsertMessage
+│   ├── config.ts             # getWorkspaceRoot() (WORKSPACE_DIR env ?? app config), atomic config.json + <workspace>/.cadzero/settings.json (AppSettings now includes defaultBackend)
 │   └── workspace.ts          # requireWorkspaceRoot(), setWorkspaceRoot() (mkdir -p), listWorkspaceParts()
 ├── .env                      # gitignored — your real OpenRouter key goes here
 └── .env.example              # committed template
@@ -249,8 +295,9 @@ exact same SPA as the web app — Electron just loads it.
   model + current `cadCode`/`language` are injected into the request body by
   the transport's `prepareSendMessagesRequest` (reads live store state, so no
   stale closures) and turned into the model `instructions` via
-  `buildInstructions(mode, cadCode, language)` server-side. The model never
-  switches modes on its own.
+  `buildInstructions(mode, cadCode, language, selection)` server-side (the
+  `selection` arg appends a "User has selected:" block when entities are
+  picked). The model never switches modes on its own.
 - **Model picker is server-driven.** `server/models.config.json` is the
   whitelist; `listAvailableModels()` (`server/models.ts`) intersects it with
   OpenRouter's live `GET /api/v1/models` (5-min in-process cache, fails open —
@@ -409,9 +456,10 @@ exact same SPA as the web app — Electron just loads it.
   (build/restore) still enter CodeMirror's undo stack (would need
   `Transaction.addToHistory.of(false)`); undo/redo buttons are always enabled
   (no public `canUndo` without internals).
-- **build123d in the editor:** the editor offers the Python grammar, but
-  `POST /api/render` rejects non-openscad and the Render button is disabled
-  with a tooltip — only OpenSCAD can execute.
+- **Both backends render from the Code tab.** The editor picks `cpp()` for
+  OpenSCAD / `python()` for build123d and Render works for both (build123d via
+  the persistent worker). The Code-tab Render button is always enabled; failures
+  surface in the inline banner.
 - **`saveState` must always be redeemable.** `useChatPersist` only flips a doc
   to `"saving"` when it can actually persist (`partId && chatLoaded`); it must
   never set `"saving"` for a doc whose chat isn't loaded yet, because `persist`
@@ -432,8 +480,9 @@ exact same SPA as the web app — Electron just loads it.
   export is an opaque blocking CLI call with no progress signal. The dialog is
   **non-dismissable while running** (close button hidden; Escape / overlay clicks
   `preventDefault`; `onOpenChange` ignored) and auto-closes when the store clears
-  `exportJob` on completion. **STEP is deferred** — OpenSCAD cannot emit it (B-rep
-  kernel required; FreeCAD/OpenCASCADE path noted for later). Gating: `Toolbar`
+  `exportJob` on completion. **STEP is build123d-only** — OpenCascade emits it
+  (OpenSCAD can't; OpenSCAD→STEP returns HTTP 400). The Toolbar's export menu
+  shows `.step` only when the active part is build123d. Gating: `Toolbar`
   refuses export with a toast when `!activeId` (unsaved tab) — a saved/built part
   always has stored code.
 - **Restore writes a note into the chat (so the AI has it in context).**
@@ -901,7 +950,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | OpenSCAD capability check      | **LIVE** — `GET /api/capabilities` (now checked server-side only; the bottom `StatusBar` was removed, so no UI surface currently shows it)  |
 | `app/dummy/`                   | **DELETED** — retired now that real OpenSCAD is wired     |
 | `app/services/websocket.ts`    | **Mocked** — `DummyWebSocketClient`; becomes real WS for CAD progress |
-| Export in `useModelStore`      | **LIVE** — `GET /api/parts/:id/export/:format` re-renders the part's code via the OpenSCAD CLI (stl/obj/3mf) and streams bytes back; client fetches → blob → `<a download>` (works in web + Electron). Exports the previewed revision when `?revId=` is set. A non-dismissable `ExportDialog` (indeterminate spinner + filename + elapsed timer) shows during export. **STEP is deferred** — OpenSCAD can't emit it (needs a B-rep kernel like FreeCAD/OpenCASCADE). |
+| Export in `useModelStore`      | **LIVE** — `GET /api/parts/:id/export/:format` re-renders the part's code via its backend (stl/obj/3mf for both; **step build123d-only** via OpenCascade) and streams bytes back; client fetches → blob → `<a download>` (works in web + Electron). Exports the previewed revision when `?revId=` is set. A non-dismissable `ExportDialog` (indeterminate spinner + filename + elapsed timer) shows during export. |
 | Save UX (Save button + ⌘/Ctrl+S, per-tab `saveState` indicators, name-on-first-save) | **LIVE** — force-flushes chat; NamePrompt names/creates the part; rename now refreshes the workspace list |
 | Connection status              | **Mocked** — reflects the dummy WS, not the AI backend    |
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
