@@ -586,10 +586,11 @@ interface ChatRequestBody {
   language?: BackendName;
   partId?: string | null;
   selection?: TopologySelection[];
+  codeExternallyModified?: boolean;
 }
 
 app.post("/api/chat", async (c) => {
-  const { messages, mode, model, cadCode, language, partId, selection } =
+  const { messages, mode, model, cadCode, language, partId, selection, codeExternallyModified } =
     await c.req.json<ChatRequestBody>();
 
   const safeMode: ChatMode =
@@ -612,6 +613,7 @@ app.post("/api/chat", async (c) => {
       cadCode ?? null,
       safeLanguage,
       safeSelection,
+      codeExternallyModified === true,
     ),
     messages: await convertToModelMessages(messages),
     tools: {

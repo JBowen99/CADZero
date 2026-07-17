@@ -56,7 +56,7 @@ Answer the user's questions about the current model, the active backend, or CAD 
   build: `You are in BUILD mode.
 Update the model by calling the update_model tool with the COMPLETE script (never a diff or fragment), language set to the active part's language, and a short user-facing "message" describing what changed.
 If the tool returns success, stop — do not call it again. If it returns an error (e.g. a parser/syntax error), read the stderr/traceback, fix the reported line in the full script, and call update_model again with the corrected complete script. Retry at most a few times; if you cannot fix it, stop and briefly explain the error to the user.
-Always edit the existing model's code (provided below) rather than starting over, unless the user explicitly asks for a new part. Keep all prior parameters unless the user asked to change them.`,
+Always edit the existing model's code (the current script provided in these instructions) rather than starting over, unless the user explicitly asks for a new part. Keep all prior parameters unless the user asked to change them. Never resurrect an older version of the script from the conversation history.`,
 };
 
 export function buildInstructions(
@@ -64,16 +64,20 @@ export function buildInstructions(
   cadCode: string | null,
   language: BackendName,
   selection: TopologySelection[] = [],
+  codeExternallyModified = false,
 ): string {
   const sections = [BASE_PROMPTS[language], "", MODE_PROMPTS[mode]];
   if (cadCode && cadCode.trim()) {
     sections.push(
       "",
-      `The user is currently editing this ${language} script. Treat it as the source of truth and modify it when the user asks for changes:`,
-      "```" + language,
-      cadCode,
-      "```",
+      `The CURRENT ${language} script for the active model is below. This is the authoritative, latest version — it is MORE up-to-date than any code embedded earlier in the conversation history. Always continue editing from THIS exact script, preserving everything the user has not asked to change:`,
     );
+    if (codeExternallyModified) {
+      sections.push(
+        "IMPORTANT: the user edited this script by hand since your last build. Any older script seen earlier in the conversation is now OUTDATED. Your next update_model call MUST be derived from the script below — if you start from an earlier version, the user's manual changes will be lost.",
+      );
+    }
+    sections.push("```" + language, cadCode, "```");
   } else {
     sections.push("", "There is no current model yet — the next Build creates the first one.");
   }

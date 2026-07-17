@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
+import type { UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { chatApiUrl } from "~/lib/api";
@@ -24,6 +25,31 @@ interface ChatState {
   error: ChatInstance["error"];
 }
 
+interface BuildPart {
+  type: `tool-${string}`;
+  state?: string;
+  input?: { code?: string };
+}
+
+function lastResolvedBuildCode(messages: UIMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const parts = messages[i]?.parts as unknown[] | undefined;
+    if (!parts) continue;
+    for (const p of parts) {
+      if (
+        p &&
+        typeof p === "object" &&
+        (p as BuildPart).type === "tool-update_model" &&
+        (p as BuildPart).state === "output-available"
+      ) {
+        const code = (p as BuildPart).input?.code;
+        if (typeof code === "string") return code;
+      }
+    }
+  }
+  return null;
+}
+
 const ActionsContext = createContext<ChatActions | null>(null);
 const StatusContext = createContext<ChatStatus | null>(null);
 const StateContext = createContext<ChatState | null>(null);
@@ -34,18 +60,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     () =>
       new DefaultChatTransport({
         api: chatApiUrl,
-        prepareSendMessagesRequest: ({ body, messages }) => ({
-          body: {
-            ...body,
-            messages,
-            mode: useChatModeStore.getState().mode,
-            model: useSettingsStore.getState().model,
-            cadCode: useModelStore.getState().cadCode,
-            language: useModelStore.getState().language,
-            partId: useDocumentsStore.getState().activeId,
-            selection: useSelectionStore.getState().selection,
-          },
-        }),
+        prepareSendMessagesRequest: ({ body, messages }) => {
+          const cadCode = useModelStore.getState().cadCode;
+          const lastBuilt = lastResolvedBuildCode(messages);
+          const codeExternallyModified =
+            !!cadCode && !!lastBuilt && cadCode !== lastBuilt;
+          return {
+            body: {
+              ...body,
+              messages,
+              mode: useChatModeStore.getState().mode,
+              model: useSettingsStore.getState().model,
+              cadCode,
+              language: useModelStore.getState().language,
+              partId: useDocumentsStore.getState().activeId,
+              selection: useSelectionStore.getState().selection,
+              codeExternallyModified,
+            },
+          };
+        },
       }),
     [],
   );

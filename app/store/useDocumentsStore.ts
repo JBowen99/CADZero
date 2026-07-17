@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { UIMessage } from "ai";
+import { toast } from "sonner";
 import type {
   BackendName,
   PartDocument,
@@ -436,8 +437,26 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         }),
       });
       if (!res.ok) return;
-      const { meta } = (await res.json()) as { meta: PartSummary };
-      setActiveDocFields({ meta, codeDirty: false });
+      const out = (await res.json()) as {
+        meta: PartSummary;
+        rev?: { meshBlobId?: string | null };
+        renderError?: string | null;
+      };
+      const patch: Partial<OpenDoc> = { meta: out.meta, codeDirty: false };
+      if (out.rev?.meshBlobId) {
+        const mesh = await fetchMeshNullable(doc.partId, out.rev.meshBlobId);
+        if (mesh) {
+          patch.mesh = mesh;
+          patch.meshCode = doc.cadCode;
+          useModelStore.getState().setModel(mesh, doc.cadCode, doc.language);
+        }
+      }
+      setActiveDocFields(patch);
+      if (out.renderError) {
+        toast.warning("Saved — but geometry didn't render", {
+          description: out.renderError,
+        });
+      }
     },
 
     snapshotChat: (clientId, chat) => {
