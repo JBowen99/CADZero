@@ -18,6 +18,11 @@ async function fetchWorkspace(): Promise<WorkspaceInfo> {
   return res.json();
 }
 
+const INIT_RETRY_DELAYS_MS = [500, 1000, 2000, 4000];
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   root: null,
   configured: false,
@@ -25,17 +30,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   initialized: false,
 
   init: async () => {
-    try {
-      const info = await fetchWorkspace();
-      set({
-        root: info.root,
-        configured: info.configured,
-        parts: info.parts,
-        initialized: true,
-      });
-    } catch {
-      set({ initialized: true });
+    for (let attempt = 0; attempt <= INIT_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const info = await fetchWorkspace();
+        set({
+          root: info.root,
+          configured: info.configured,
+          parts: info.parts,
+          initialized: true,
+        });
+        return;
+      } catch {
+        if (attempt < INIT_RETRY_DELAYS_MS.length) {
+          await sleep(INIT_RETRY_DELAYS_MS[attempt]);
+        }
+      }
     }
+    set({ initialized: true });
   },
 
   refresh: async () => {

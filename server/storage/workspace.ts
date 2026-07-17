@@ -24,7 +24,8 @@ export function setWorkspaceRoot(root: string): string {
   const abs = path.resolve(expandTilde(root));
   mkdirSync(abs, { recursive: true });
   accessSync(abs);
-  if (getWorkspaceRoot() === process.env.WORKSPACE_DIR?.trim()) {
+  const envWorkspace = process.env.WORKSPACE_DIR?.trim();
+  if (envWorkspace && envWorkspace.length > 0) {
     return abs;
   }
   writeAppConfig({ workspaceRoot: abs });

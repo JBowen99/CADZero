@@ -135,7 +135,7 @@ app/
 │   ├── useModelStore.ts     # mesh (TriangleMesh), cadCode, language, backend, isBuilding, isRendering, isExporting + exportJob {filename,format}|null, setModel, setCode, setCadCode (mesh-safe — edits don't clear the viewport), setBuilding, setRendering, clear, exportModel(format, ctx)
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
 │   ├── useSettingsStore.ts  # model + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
-│   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace
+│   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace. **init() retries with backoff** (500ms→1s→2s→4s, ~8s cap) so it survives the dev:all cold-start race where Vite is up before the API server; initialized only flips after success OR retry exhaustion (so the WorkspaceSetup dialog stays hidden during retries and auto-dismisses once :8787 answers)
 │   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId; denormalized activeId/activeMeta/previewingRevId; each OpenDoc also carries cadCode + meshCode (code that produced mesh → drives out-of-sync) + codeDirty; actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview/restore/checkpoint (FIFO cap 8)
 │   └── useConnectionStore.ts
 ├── types/
@@ -572,6 +572,18 @@ successful render.
     (`/failed to fetch|network|load failed|.../i`) into the "Can't reach the AI
     backend" banner. **`regenerate()` retries the last user message** — it does
     not need the user to retype. Add new error categories to that function.
+22. **`dev:all` is a startup race — `init()` retries around it.** In `dev:all`
+    the Vite web server (`:5173`) is ready in a few hundred ms, but the API server
+    (`:8787`) needs tsx compilation + the `better-sqlite3` native load (~seconds).
+    The SPA mounts and calls `useWorkspaceStore.init()` before `:8787` is
+    listening → the `GET /api/workspace` fetch fails. **`init()` now retries with
+    backoff** (`[500,1000,2000,4000]` ms) and only sets `initialized: true` after
+    success or exhaustion, so the `WorkspaceSetup` dialog (`{wsInitialized &&
+    !configured}` in `home.tsx`) stays hidden during retries and auto-dismisses
+    once the server answers. **Do not** revert this to a single fetch — the
+    first-run dialog would reappear on every cold start. The dummy
+    `useConnectionStore.status` ("connected" after a flat 400ms) is NOT a real
+    readiness signal, so don't gate `init()` on it.
 
 ---
 
@@ -863,7 +875,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Save UX (Save button + ⌘/Ctrl+S, per-tab `saveState` indicators, name-on-first-save) | **LIVE** — force-flushes chat; NamePrompt names/creates the part; rename now refreshes the workspace list |
 | Connection status              | **Mocked** — reflects the dummy WS, not the AI backend    |
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
-| Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.cadzero/settings.json` |
+| Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.cadzero/settings.json`. `setWorkspaceRoot` persists to `config.json` unless `WORKSPACE_DIR` env is active; client `init()` retries with backoff so a slow API-server startup doesn't show the first-run `WorkspaceSetup` dialog |
 | Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
 | Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
