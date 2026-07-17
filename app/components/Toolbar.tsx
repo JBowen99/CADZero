@@ -91,15 +91,19 @@ function PartNameControl() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={startEdit}
-      className="group flex h-7 max-w-[180px] items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-accent"
-      title="Rename part"
-    >
-      <span className="truncate">{displayName}</span>
-      <Pencil className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={startEdit}
+          className="group flex h-7 max-w-[180px] items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-accent"
+        >
+          <span className="truncate">{displayName}</span>
+          <Pencil className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Rename part</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -171,11 +175,16 @@ export function Toolbar() {
       </Tooltip>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="File menu">
-            <FilePlus2 className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="File menu">
+                <FilePlus2 className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>New file</TooltipContent>
+        </Tooltip>
         <DropdownMenuContent align="start">
           <DropdownMenuLabel>File</DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -210,16 +219,21 @@ export function Toolbar() {
       </Tooltip>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={isExporting}
-            aria-label="Export model"
-          >
-            <ArrowUpFromLine className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={isExporting}
+                aria-label="Export model"
+              >
+                <ArrowUpFromLine className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Export model</TooltipContent>
+        </Tooltip>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>Export model</DropdownMenuLabel>
           <DropdownMenuSeparator />

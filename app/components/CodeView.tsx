@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Code2, Loader2, Play, Redo2, Undo2, X } from "lucide-react";
 import { CodeEditor, type CodeEditorHandle } from "~/components/CodeEditor";
 import { Button } from "~/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 
@@ -54,38 +55,50 @@ export function CodeView() {
               {triangleCount.toLocaleString()} triangles
             </span>
           )}
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => editorRef.current?.undo()}
-            title="Undo (⌘/Ctrl+Z)"
-            aria-label="Undo"
-          >
-            <Undo2 className="size-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => editorRef.current?.redo()}
-            title="Redo (⌘/Ctrl+Shift+Z)"
-            aria-label="Redo"
-          >
-            <Redo2 className="size-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => void handleRender()}
-            disabled={rendering || !canRender}
-            title="Render (⌘/Ctrl+Enter)"
-            aria-label="Render model"
-          >
-            {rendering ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Play className="size-3" />
-            )}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editorRef.current?.undo()}
+                aria-label="Undo"
+              >
+                <Undo2 className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Undo (⌘/Ctrl+Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => editorRef.current?.redo()}
+                aria-label="Redo"
+              >
+                <Redo2 className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Redo (⌘/Ctrl+Shift+Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => void handleRender()}
+                disabled={rendering || !canRender}
+                aria-label="Render model"
+              >
+                {rendering ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Play className="size-3" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Render (⌘/Ctrl+Enter)</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       {error && (

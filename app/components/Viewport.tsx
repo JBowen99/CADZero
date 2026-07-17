@@ -1004,78 +1004,6 @@ export function Viewport() {
         </Tooltip>
       ) : null}
       <div className="absolute bottom-3 left-3 flex flex-col gap-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "off"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground",
-                )}
-                onClick={() => setSelectMode("off")}
-                aria-label="Orbit (no selection)"
-                aria-pressed={selectMode === "off"}
-              >
-                <Compass className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canSelect}
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "all" && "bg-primary text-primary-foreground",
-                )}
-                onClick={() =>
-                  setSelectMode(selectMode === "all" ? "off" : "all")
-                }
-                aria-label="Select all (vertices, edges, faces)"
-                aria-pressed={selectMode === "all"}
-              >
-                <Crosshair className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canSelect}
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "precise" &&
-                    "bg-primary text-primary-foreground",
-                )}
-                onClick={() =>
-                  setSelectMode(selectMode === "precise" ? "off" : "precise")
-                }
-                aria-label="Select a specific entity type"
-                aria-pressed={selectMode === "precise"}
-              >
-                <Target className="size-4" />
-              </Button>
-              {selection.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="ml-1 mr-0.5 rounded px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-                  aria-label="Clear selection"
-                >
-                  {selection.length}
-                </button>
-              )}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {canSelect
-              ? "Select entities to add as chat context"
-              : "Selection requires a Build123D part (B-rep)"}
-          </TooltipContent>
-        </Tooltip>
         {selectMode === "precise" && (
           <div className="flex items-center gap-0.5 self-end rounded-md border bg-background/80 p-0.5">
             {PRECISE_KINDS.map((m) => {
@@ -1105,6 +1033,92 @@ export function Viewport() {
             })}
           </div>
         )}
+        <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "h-7 w-7",
+                  selectMode === "off"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setSelectMode("off")}
+                aria-label="Orbit (no selection)"
+                aria-pressed={selectMode === "off"}
+              >
+                <Compass className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Orbit (no selection)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canSelect}
+                className={cn(
+                  "h-7 w-7",
+                  selectMode === "all" && "bg-primary text-primary-foreground",
+                )}
+                onClick={() =>
+                  setSelectMode(selectMode === "all" ? "off" : "all")
+                }
+                aria-label="Select all (vertices, edges, faces)"
+                aria-pressed={selectMode === "all"}
+              >
+                <Crosshair className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {canSelect
+                ? "Select all (vertices, edges, faces)"
+                : "Selection requires a Build123D part (B-rep)"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canSelect}
+                className={cn(
+                  "h-7 w-7",
+                  selectMode === "precise" &&
+                    "bg-primary text-primary-foreground",
+                )}
+                onClick={() =>
+                  setSelectMode(selectMode === "precise" ? "off" : "precise")
+                }
+                aria-label="Select a specific entity type"
+                aria-pressed={selectMode === "precise"}
+              >
+                <Target className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {canSelect
+                ? "Select precise (face / edge / vertex)"
+                : "Selection requires a Build123D part (B-rep)"}
+            </TooltipContent>
+          </Tooltip>
+          {selection.length > 0 && (
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="ml-1 mr-0.5 rounded px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+              aria-label="Clear selection"
+            >
+              {selection.length}
+            </button>
+          )}
+        </div>
       </div>
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (
