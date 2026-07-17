@@ -36,7 +36,6 @@ export const exportUrl = (
 export const revisionsUrl = (id: string) => `${partUrl(id)}/revisions`;
 export const revisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}`;
-export const checkpointUrl = (id: string) => `${partUrl(id)}/checkpoint`;
 export const restoreRevisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}/restore`;
 export const messagesUrl = (id: string) => `${partUrl(id)}/messages`;

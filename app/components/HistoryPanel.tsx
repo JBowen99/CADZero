@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
-  Bookmark,
   Flag,
   History,
   RotateCcw,
@@ -56,7 +55,6 @@ export function HistoryPanel() {
   const previewRevision = useDocumentsStore((s) => s.previewRevision);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
   const restoreWithNote = useRestoreWithNote();
-  const checkpoint = useDocumentsStore((s) => s.checkpoint);
 
   const [revs, setRevs] = useState<RevisionDTO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -85,13 +83,6 @@ export function HistoryPanel() {
       cancelled = true;
     };
   }, [activeId, activeMeta?.updatedAt]);
-
-  const handleCheckpoint = async () => {
-    const label = window.prompt("Checkpoint name (labels the current version):")?.trim();
-    if (!label) return;
-    await checkpoint(label);
-    toast.success(`Checkpointed “${label}”`);
-  };
 
   const handleRestore = async (revId: string) => {
     if (
@@ -150,16 +141,6 @@ export function HistoryPanel() {
             {revs.length} {revs.length === 1 ? "revision" : "revisions"}
           </span>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7"
-          onClick={() => void handleCheckpoint()}
-          disabled={!headRevId}
-        >
-          <Bookmark className="size-3.5" />
-          Checkpoint
-        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">

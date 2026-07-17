@@ -33,7 +33,6 @@ import {
   type AppSettings,
 } from "./storage/config";
 import {
-  checkpoint,
   createPart,
   createRevision,
   deletePart,
@@ -308,17 +307,6 @@ app.get("/api/parts/:id/revisions/:revId", (c) => {
   if (typeof root !== "string") return root;
   const rev = getRevision(root, c.req.param("id"), c.req.param("revId"));
   if (!rev) return c.json({ error: "revision not found" }, 404);
-  return c.json(rev);
-});
-
-app.post("/api/parts/:id/checkpoint", async (c) => {
-  const root = workspaceOr400(c);
-  if (typeof root !== "string") return root;
-  const body: { label?: string } | null = await c.req.json().catch(() => null);
-  const label = body?.label?.trim();
-  if (!label) return c.json({ error: "label required" }, 400);
-  const rev = checkpoint(root, c.req.param("id"), label);
-  if (!rev) return c.json({ error: "no head revision to checkpoint" }, 404);
   return c.json(rev);
 });
 

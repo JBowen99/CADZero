@@ -21,7 +21,7 @@ and streams a parsed triangle mesh back to the viewport. Plan / Chat / Build
 modes are user-selectable. **Persistence is live** (Phases 0–4): parts are
 `.cadz` SQLite files in a workspace, with PDM revision history, multi-part tabs,
 and per-part chat persistence. **The Code tab is now a full editor** (CodeMirror
-6): edit code, Render to preview the mesh (ephemeral, no checkpoint), ⌘/Ctrl+S
+6): edit code, Render to preview the mesh (ephemeral, no save), ⌘/Ctrl+S
 to save the code as a new `manual` revision, with dirty indicators, an
 out-of-sync viewport warning, and a discard/save guard before builds/restores.
 **Both CAD kernels are live** (OpenSCAD + Build123D), backend type is locked at
@@ -178,7 +178,7 @@ app/
 │   ├── CodeDirtyGuardDialog.tsx # discard/save/cancel modal shown before a build/restore/preview clobbers unsaved code edits (drives useDocumentsStore.codeDirtyGuard)
 │   ├── SidePanel.tsx        # right panel container with [Chat | Code | History] tab switch; Code tab shows a ● when the active doc has unsaved code edits
 │   ├── TabBar.tsx           # multi-part tabs (above viewport ONLY, inside the left ResizablePanel — NOT full width): switch/close/new; switch+close-active disabled while busy
-│   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore/checkpoint; refetches on activeMeta.updatedAt. **Native scroll** (NOT radix ScrollArea — its overlay scrollbar clipped the right edge; uses the same `overflow-y-auto overflow-x-hidden` + `min-w-0` flex pattern as ChatPanel). List items show a **version number** (`v1`=oldest … `vN`=newest, computed as `revs.length - index` since the list is newest-first) instead of per-source icons (source type still shown in the subtitle text). `isHead`/"current" badge = `rev.revId === activeMeta.headRevId`.
+│   ├── HistoryPanel.tsx     # PDM revision timeline: list/preview/restore; refetches on activeMeta.updatedAt. **Native scroll** (NOT radix ScrollArea — its overlay scrollbar clipped the right edge; uses the same `overflow-y-auto overflow-x-hidden` + `min-w-0` flex pattern as ChatPanel). List items show a **version number** (`v1`=oldest … `vN`=newest, computed as `revs.length - index` since the list is newest-first) instead of per-source icons (source type still shown in the subtitle text). `isHead`/"current" badge = `rev.revId === activeMeta.headRevId`.
 │   ├── NamePrompt.tsx       # Save-time name dialog (drives resolveName: PATCH existing part or POST-create a chat-only part)
 │   ├── NewPartDialog.tsx    # creation-time backend chooser (OpenSCAD/Build123D tiles; pre-selects AppSettings.defaultBackend; grays build123d if useCapabilitiesStore says unavailable); drives newTab(language) + setDefaultBackend
 │   ├── ExportDialog.tsx     # Export modal: non-dismissable while exporting (no X, Escape/overlay suppressed); indeterminate Loader2 spinner + filename + live elapsed-seconds counter; driven by useModelStore.exportJob
@@ -188,7 +188,7 @@ app/
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language/partId/selection
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / checkpointUrl / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
@@ -206,7 +206,7 @@ app/
 │   ├── useCapabilitiesStore.ts # openscad/build123d {ok,version?,error?}; loaded once at boot (GET /api/capabilities); drives NewPartDialog build123d gating
 │   ├── useSelectionStore.ts # selection: TopologySelection[] (multi, no cap); toggle/remove/clear; read by the chat transport + ChatPanel chips; cleared on send/tab-switch/mesh-change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace. **init() retries with backoff** (500ms→1s→2s→4s, ~8s cap) so it survives the dev:all cold-start race where Vite is up before the API server; initialized only flips after success OR retry exhaustion (so the WorkspaceSetup dialog stays hidden during retries and auto-dismisses once :8787 answers)
-│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId + newPartDialogOpen; denormalized activeId/activeMeta/previewingRevId; each OpenDoc carries cadCode + meshCode + topology + language + codeDirty; newTab(language) (language chosen in NewPartDialog, immutable for the doc's life); actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode (fetches topology for build123d)/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview (fetches topology)/restore (fetches topology)/checkpoint (FIFO cap 8)
+│   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId + newPartDialogOpen; denormalized activeId/activeMeta/previewingRevId; each OpenDoc carries cadCode + meshCode + topology + language + codeDirty; newTab(language) (language chosen in NewPartDialog, immutable for the doc's life); actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode (fetches topology for build123d)/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview (fetches topology)/restore (fetches topology). openDocs FIFO cap 8
 │   └── useConnectionStore.ts
 ├── types/
 │   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, Topology (FaceGroup/EdgeGroup/VertexNode), TopologySelection (kind/id/label/summary), ModelingBackend, etc.
@@ -410,7 +410,7 @@ exact same SPA as the web app — Electron just loads it.
   the document tab (`TabBar`: `saveState==="unsaved" || codeDirty`) and the Code
   sub-tab (`SidePanel`). Render/saving clear it; editing sets it; a build or
   restore/preview that replaces the code also clears it (see below).
-- **Render = ephemeral preview, NOT a checkpoint.** `renderActiveCode()` POSTs
+- **Render = ephemeral preview, NOT a save.** `renderActiveCode()` POSTs
   to `POST /api/render` (part-independent — works for brand-new tabs with no
   `partId`; runs `renderScad` → `parseStl` → `MAX_TRIANGLES` → ephemeral
   `storeMesh`; returns `{ok, meshId, triangleCount, stderr}`, HTTP 200 with
@@ -541,7 +541,7 @@ bootstrap in `index.ts`).
 
 A **document-based persistence layer** for parts, revisions, chat, and settings.
 **All live** (Phases 0–4): the `.cadz` SQLite container, workspace, settings,
-part CRUD + build auto-revision, PDM revision history (checkpoint/restore),
+part CRUD + build auto-revision, PDM revision history (preview/restore),
 multi-part tabs, and per-part chat persistence (linear). Chat forking UI is the
 only remaining (deferred) piece.
 
@@ -575,9 +575,12 @@ Design decisions (locked during planning — see the plan in chat history):
 - **Revisions are a DAG; HEAD is a pointer.** `createRevision` always advances
   `meta.head_rev_id`. `restoreRevision(revId)` creates a *child* of an older rev
   (`source:"fork"`, **references** the source's `mesh_blob_id` — no copy) and
-  makes it HEAD (unified forward-fork: old work stays in history). `checkpoint`
-  tags the current HEAD revision's `label` (no new node). `createRevision` input
-  takes either `mesh` (store new blob) or `meshBlobId` (reference existing).
+  makes it HEAD (unified forward-fork: old work stays in history). A
+  revision's `label` can still be set directly via `PATCH …/revisions/:revId`
+  (`setRevisionLabel`), but there is **no user-facing checkpoint action** — saving
+  code (`source:"manual"`) is the only manual way to create a revision.
+  `createRevision` input takes either `mesh` (store new blob) or `meshBlobId`
+  (reference existing).
 - **Connection cache**: `openPartDb()` keeps an LRU of 16 open better-sqlite3
   handles keyed by absolute path. `journal_mode = DELETE` + `synchronous = NORMAL`
   (NOT WAL) — chosen so a `.cadz` is **self-contained at rest** (no `-wal`/`-shm`
@@ -594,7 +597,7 @@ Design decisions (locked during planning — see the plan in chat history):
 Endpoints added in `server/app.ts`: `GET/POST /api/workspace`,
 `GET/PUT /api/settings`, part CRUD (`/api/parts/*`), revision routes
 (`GET /api/parts/:id/revisions`, `GET …/revisions/:revId`,
-`POST …/checkpoint`, `POST …/revisions/:revId/restore`,
+`POST …/revisions/:revId/restore`,
 `PATCH …/revisions/:revId`), and chat routes (`GET/PUT …/messages`). The build
 tool (`makeUpdateModelTool`) auto-creates a revision (cached mesh) on every
 successful render.
@@ -944,7 +947,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Image attachments (vision)     | **LIVE** — paste / drag-drop / paperclip; gated on per-model `supportsVision`; ≤4 imgs, ≤5 MB, downscaled; **non-vision model strips images on send + red warning** |
 | OpenSCAD auto-retry            | **LIVE** — `stopWhen: stepCountIs(4)` + `MAX_TRIANGLES=500_000` cap; model self-corrects from stderr |
 | Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code|History]` tabs in `SidePanel` |
-| Editable Code tab (CodeMirror 6) | **LIVE** — edit code; `codeDirty` dot in the doc tab + Code sub-tab; Render ▶ / Mod-Enter → `POST /api/render` (ephemeral, no checkpoint); ⌘/Ctrl+S → `POST /api/parts/:id/revisions` (`source:"manual"`, code-only); undo/redo buttons + native shortcuts; out-of-sync viewport badge ↔ "Rendering…" badge; discard/save guard before build/restore/preview. OpenSCAD only (build123d grammar shown but Render disabled) |
+| Editable Code tab (CodeMirror 6) | **LIVE** — edit code; `codeDirty` dot in the doc tab + Code sub-tab; Render ▶ / Mod-Enter → `POST /api/render` (ephemeral, no save); ⌘/Ctrl+S → `POST /api/parts/:id/revisions` (`source:"manual"`, code-only); undo/redo buttons + native shortcuts; out-of-sync viewport badge ↔ "Rendering…" badge; discard/save guard before build/restore/preview. OpenSCAD only (build123d grammar shown but Render disabled) |
 | Mesh transport                 | **LIVE** — `GET /api/mesh/:id` returns a BINARY frame `[Uint32 triangleCount][Float32 positions…]` (`application/octet-stream`); client decodes via `arrayBuffer()` + zero-copy `Float32Array` view (was JSON `number[]` — caused load-time freeze) |
 | Viewport view modes / controls | **LIVE** — Shaded/Solid/Wireframe, grid + view-cube toggles, Frame btn + `F` hotkey (reorients to front-right-top iso corner + fits), Radix tooltips on all top-right buttons, interaction-gated camera, dark-mode-correct |
 | OpenSCAD capability check      | **LIVE** — `GET /api/capabilities` (now checked server-side only; the bottom `StatusBar` was removed, so no UI surface currently shows it)  |
@@ -956,7 +959,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Storage: `.cadz` SQLite container (`server/storage/`) | **LIVE** — part/revision/message/mesh schema; openPartDb LRU; journal_mode=DELETE for self-contained files |
 | Storage: workspace + settings (`/api/workspace`, `/api/settings`) | **LIVE** — single workspace root (env `WORKSPACE_DIR` or app config), UI settings in `<workspace>/.cadzero/settings.json`. `setWorkspaceRoot` persists to `config.json` unless `WORKSPACE_DIR` env is active; client `init()` retries with backoff so a slow API-server startup doesn't show the first-run `WorkspaceSetup` dialog |
 | Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
-| Storage: PDM revision browser + checkpoint/restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); manual checkpoint tags HEAD; restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
+| Storage: PDM revision browser + restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
 | Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json`, linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist + flush-on-switch + beforeunload |
 | Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |
@@ -994,8 +997,11 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
    - **Phase 2 ✅ DONE** — PDM revision history. History tab (right panel),
      `previewRevision` (read-only time-travel; cached mesh = instant; build
      disabled while previewing), `restoreRevision` (unified forward-fork, reuses
-     the source mesh blob), `checkpoint` (tags current HEAD `label`). Schema
-     migrated v1→v2 (`revisions.label`) via a real versioned ladder. Preview
+      the source mesh blob). *(A manual `checkpoint` button that tagged HEAD
+      with a `label` shipped here but has since been **removed** — saving code via
+      ⌘/Ctrl+S is now the only way to create a manual revision; the `label` column
+      + `PATCH …/revisions/:revId` endpoint remain.)* Schema migrated v1→v2
+      (`revisions.label`) via a real versioned ladder. Preview
      disables chat send + shows a viewport banner.
    - **Phase 3 ✅ DONE** — multi-part tabs. `useDocumentsStore` refactored to
      `openDocs[]` + `activeClientId` (denormalized `activeId/activeMeta/

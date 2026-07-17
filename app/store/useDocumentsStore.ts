@@ -11,7 +11,6 @@ import type {
   TriangleMesh,
 } from "~/types";
 import {
-  checkpointUrl,
   messagesUrl,
   meshUrl,
   partMeshUrl,
@@ -85,7 +84,6 @@ interface DocumentsState {
   previewRevision: (revId: string) => Promise<void>;
   exitPreview: () => Promise<void>;
   restoreRevision: (revId: string) => Promise<void>;
-  checkpoint: (label: string) => Promise<void>;
   saveActiveNow: () => Promise<void>;
   resolveName: (name: string) => Promise<void>;
   setNamePromptOpen: (open: boolean) => void;
@@ -644,20 +642,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         language: data.language,
         codeDirty: false,
       });
-    },
-
-    checkpoint: async (label) => {
-      const partId = get().activeId;
-      if (!partId) return;
-      const res = await fetch(checkpointUrl(partId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label }),
-      });
-      if (res.ok) {
-        const meta = get().activeMeta;
-        if (meta) setActiveDocFields({ meta: { ...meta, updatedAt: Date.now() } });
-      }
     },
 
     setSaveState: (clientId, state) => {

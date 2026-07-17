@@ -347,23 +347,6 @@ export function restoreRevision(
   });
 }
 
-export function checkpoint(
-  workspaceRoot: string,
-  id: string,
-  label: string,
-): RevisionRecord | null {
-  const file = partPath(workspaceRoot, id);
-  if (!existsSync(file)) return null;
-  const db = openPartDb(file);
-  const meta = readMeta(db);
-  if (!meta?.headRevId) return null;
-  const updated = setRevisionLabel(workspaceRoot, id, meta.headRevId, label);
-  if (updated) {
-    setMeta(db, "updated_at", Date.now());
-  }
-  return updated;
-}
-
 export function storeMeshBlob(
   db: DatabaseType,
   mesh: { positions: number[] | Float32Array; triangleCount: number },
