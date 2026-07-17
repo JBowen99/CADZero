@@ -6,6 +6,7 @@ import type {
   PartSummary,
   RevisionDetail,
   StoredMessage,
+  Topology,
   TriangleMesh,
 } from "~/types";
 import {
@@ -13,12 +14,14 @@ import {
   messagesUrl,
   meshUrl,
   partMeshUrl,
+  partTopologyUrl,
   partsUrl,
   partUrl,
   renderUrl,
   restoreRevisionUrl,
   revisionUrl,
   revisionsUrl,
+  topologyUrl,
 } from "~/lib/api";
 import { deserializeMessages } from "~/lib/chat-persist";
 import { useModelStore } from "~/store/useModelStore";
@@ -31,6 +34,7 @@ export interface OpenDoc {
   partId: string | null;
   meta: PartSummary | null;
   mesh: TriangleMesh | null;
+  topology: Topology | null;
   cadCode: string;
   meshCode: string | null;
   language: BackendName;
@@ -51,10 +55,11 @@ interface DocumentsState {
   activeMeta: PartSummary | null;
   previewingRevId: string | null;
   namePromptOpen: boolean;
+  newPartDialogOpen: boolean;
   saveSignal: number;
   codeDirtyGuard: { open: boolean; resolve?: (ok: boolean) => void } | null;
   openPart: (id: string, opts?: { background?: boolean }) => Promise<void>;
-  newTab: () => void;
+  newTab: (language: BackendName) => void;
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
@@ -83,6 +88,7 @@ interface DocumentsState {
   saveActiveNow: () => Promise<void>;
   resolveName: (name: string) => Promise<void>;
   setNamePromptOpen: (open: boolean) => void;
+  setNewPartDialogOpen: (open: boolean) => void;
 }
 
 async function decodeMesh(res: Response): Promise<TriangleMesh> {
@@ -102,6 +108,20 @@ async function fetchMeshNullable(
     const res = await fetch(partMeshUrl(partId, blobId));
     if (!res.ok) return null;
     return decodeMesh(res);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTopologyNullable(
+  partId: string,
+  blobId: string | null,
+): Promise<Topology | null> {
+  if (!blobId) return null;
+  try {
+    const res = await fetch(partTopologyUrl(partId, blobId));
+    if (!res.ok) return null;
+    return (await res.json()) as Topology;
   } catch {
     return null;
   }
@@ -139,11 +159,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
 
   function mirrorToModel(proj: {
     mesh: TriangleMesh | null;
+    topology: Topology | null;
     cadCode: string;
     language: BackendName;
   }) {
     if (proj.mesh) {
-      useModelStore.getState().setModel(proj.mesh, proj.cadCode, proj.language);
+      useModelStore
+        .getState()
+        .setModel(proj.mesh, proj.cadCode, proj.language, proj.topology);
     } else {
       useModelStore.getState().setCode(proj.cadCode, proj.language);
     }
@@ -164,6 +187,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     activeMeta: null,
     previewingRevId: null,
     namePromptOpen: false,
+    newPartDialogOpen: false,
     saveSignal: 0,
     codeDirtyGuard: null,
 
@@ -177,11 +201,16 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!res.ok) return;
       const data: PartDocument = await res.json();
       const mesh = await fetchMeshNullable(id, data.meshBlobId);
+      const topology =
+        data.language === "build123d"
+          ? await fetchTopologyNullable(id, data.meshBlobId)
+          : null;
       const doc: OpenDoc = {
         clientId: genClientId(),
         partId: id,
         meta: data.meta,
         mesh,
+        topology,
         cadCode: data.code ?? "",
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
@@ -213,15 +242,16 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!opts?.background) mirrorActiveToModel(doc);
     },
 
-    newTab: () => {
+    newTab: (language) => {
       const doc: OpenDoc = {
         clientId: genClientId(),
         partId: null,
         meta: null,
         mesh: null,
+        topology: null,
         cadCode: "",
         meshCode: null,
-        language: "openscad",
+        language,
         chat: [],
         chatLoaded: true,
         chatLoading: false,
@@ -243,7 +273,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         }
         return buildState(openDocs, activeClientId);
       });
-      useModelStore.getState().clear();
+      mirrorActiveToModel(doc);
     },
 
     closeTab: (clientId) => {
@@ -372,8 +402,19 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
           return { ok: false, message: "Failed to load rendered mesh." };
         }
         const mesh = await decodeMesh(meshRes);
-        useModelStore.getState().setModel(mesh, doc.cadCode, doc.language);
-        setActiveDocFields({ mesh, meshCode: doc.cadCode });
+        let topology: Topology | null = null;
+        if (doc.language === "build123d") {
+          try {
+            const topoRes = await fetch(topologyUrl(out.meshId));
+            if (topoRes.ok) topology = (await topoRes.json()) as Topology;
+          } catch {
+            topology = null;
+          }
+        }
+        useModelStore
+          .getState()
+          .setModel(mesh, doc.cadCode, doc.language, topology);
+        setActiveDocFields({ mesh, topology, meshCode: doc.cadCode });
         return { ok: true };
       } finally {
         useModelStore.getState().setRendering(false);
@@ -496,7 +537,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       set((s) => {
         const openDocs = s.openDocs.map((d) =>
           d.clientId === activeClientId
-            ? { ...d, partId, meta, named, pendingName, saveState: "saved" as const }
+            ? { ...d, partId, meta, named, pendingName, language: data.language, saveState: "saved" as const }
             : d,
         );
         return buildState(openDocs, s.activeClientId);
@@ -512,14 +553,21 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!res.ok) return;
       const detail: RevisionDetail = await res.json();
       const mesh = await fetchMeshNullable(partId, detail.meshBlobId);
+      const topology =
+        detail.language === "build123d"
+          ? await fetchTopologyNullable(partId, detail.meshBlobId)
+          : null;
       if (mesh) {
-        useModelStore.getState().setModel(mesh, detail.code, detail.language);
+        useModelStore
+          .getState()
+          .setModel(mesh, detail.code, detail.language, topology);
       } else {
         useModelStore.getState().setCode(detail.code, detail.language);
       }
       setActiveDocFields({
         previewingRevId: revId,
         mesh: mesh ?? null,
+        topology,
         cadCode: detail.code,
         meshCode: mesh ? detail.code : null,
         language: detail.language,
@@ -535,9 +583,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!res.ok) return;
       const data: PartDocument = await res.json();
       const mesh = await fetchMeshNullable(partId, data.meshBlobId);
-      mirrorToModel({ mesh, cadCode: data.code ?? "", language: data.language });
+      const topology =
+        data.language === "build123d"
+          ? await fetchTopologyNullable(partId, data.meshBlobId)
+          : null;
+      mirrorToModel({ mesh, topology, cadCode: data.code ?? "", language: data.language });
       setActiveDocFields({
         mesh,
+        topology,
         cadCode: data.code ?? "",
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
@@ -559,9 +612,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!docRes.ok) return;
       const data: PartDocument = await docRes.json();
       const mesh = await fetchMeshNullable(partId, data.meshBlobId);
-      mirrorToModel({ mesh, cadCode: data.code ?? "", language: data.language });
+      const topology =
+        data.language === "build123d"
+          ? await fetchTopologyNullable(partId, data.meshBlobId)
+          : null;
+      mirrorToModel({ mesh, topology, cadCode: data.code ?? "", language: data.language });
       setActiveDocFields({
         mesh,
+        topology,
         cadCode: data.code ?? "",
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
@@ -592,6 +650,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     },
 
     setNamePromptOpen: (open) => set({ namePromptOpen: open }),
+    setNewPartDialogOpen: (open) => set({ newPartDialogOpen: open }),
 
     saveActiveNow: async () => {
       const active = get().openDocs.find(

@@ -1,6 +1,6 @@
 export type BackendName = "openscad" | "build123d";
 
-export type ExportFormat = "stl" | "obj" | "3mf";
+export type ExportFormat = "stl" | "obj" | "3mf" | "step";
 
 export type MessageRole = "user" | "assistant";
 
@@ -11,6 +11,44 @@ export type ChatMode = "plan" | "chat" | "build";
 export interface TriangleMesh {
   positions: Float32Array;
   triangleCount: number;
+}
+
+export interface FaceGroup {
+  id: string;
+  startTri: number;
+  endTri: number;
+  normal: [number, number, number];
+  area: number;
+  center: [number, number, number];
+}
+
+export interface EdgeGroup {
+  id: string;
+  positions: number[];
+  length: number;
+  adjacentFaceIds: string[];
+}
+
+export interface VertexNode {
+  id: string;
+  position: [number, number, number];
+  adjacentEdgeIds: string[];
+  adjacentFaceIds: string[];
+}
+
+export interface Topology {
+  faces: FaceGroup[];
+  edges: EdgeGroup[];
+  vertices: VertexNode[];
+}
+
+export type SelectionKind = "face" | "edge" | "vertex";
+
+export interface TopologySelection {
+  kind: SelectionKind;
+  id: string;
+  label: string;
+  summary: string;
 }
 
 export interface ChatMessage {
@@ -85,6 +123,7 @@ export interface WorkspaceInfo {
 
 export interface AppSettings {
   model?: string | null;
+  defaultBackend?: BackendName;
   panelSplit?: number;
   viewMode?: string;
   gridVisible?: boolean;

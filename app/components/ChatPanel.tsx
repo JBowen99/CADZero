@@ -21,6 +21,7 @@ import { describeChatError, isChatBusy, useChatActions, useChatState, useChatSta
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useSelectionStore } from "~/store/useSelectionStore";
 import { modelsUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
 import { buildImageParts, extractImageFiles, IMAGE_LIMITS } from "~/lib/images";
@@ -86,6 +87,9 @@ export function ChatPanel() {
   const setModel = useSettingsStore((s) => s.setModel);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
+  const selection = useSelectionStore((s) => s.selection);
+  const removeSelection = useSelectionStore((s) => s.remove);
+  const clearSelection = useSelectionStore((s) => s.clear);
   const chatLoading = useDocumentsStore(
     (s) =>
       s.openDocs.find((d) => d.clientId === s.activeClientId)?.chatLoading ??
@@ -153,6 +157,7 @@ export function ChatPanel() {
     }
     setImages([]);
     setValue("");
+    clearSelection();
   };
 
   const guardedRegenerate = async () => {
@@ -304,6 +309,29 @@ export function ChatPanel() {
         {dragActive && (
           <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary/60 bg-background/80 text-xs font-medium text-primary">
             Drop images to attach
+          </div>
+        )}
+        {selection.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {selection.map((s) => (
+              <div
+                key={`${s.kind}-${s.id}`}
+                className="group flex max-w-full items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px]"
+              >
+                <span className="font-medium text-primary">{s.label}</span>
+                <span className="truncate text-muted-foreground">
+                  {s.summary}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => removeSelection(s.kind, s.id)}
+                  aria-label={`Remove ${s.label}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
         {images.length > 0 && (

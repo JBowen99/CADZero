@@ -4,6 +4,7 @@ export const config = {
   port: Number(process.env.PORT ?? "8787"),
   allowedOrigin: process.env.ALLOWED_ORIGIN ?? "http://localhost:5173",
   openscadPath: process.env.OPENSCAD_PATH ?? "openscad",
+  pythonPath: process.env.PYTHON_PATH ?? "",
 };
 
 export function assertConfig(): void {

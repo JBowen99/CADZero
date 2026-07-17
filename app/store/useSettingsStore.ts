@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppSettings } from "~/types";
+import type { AppSettings, BackendName } from "~/types";
 import { settingsUrl } from "~/lib/api";
 
 export interface AvailableModel {
@@ -10,10 +10,12 @@ export interface AvailableModel {
 
 interface SettingsState {
   model: string | null;
+  defaultBackend: BackendName | null;
   lastOpenDocIds: string[];
   loaded: boolean;
   load: () => Promise<void>;
   setModel: (id: string | null) => void;
+  setDefaultBackend: (backend: BackendName) => void;
   setOpenDocOrder: (ids: string[]) => void;
 }
 
@@ -28,6 +30,7 @@ function scheduleSave(): void {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: s.model,
+        defaultBackend: s.defaultBackend ?? undefined,
         lastOpenDocIds: s.lastOpenDocIds,
       } satisfies AppSettings),
     }).catch(() => {
@@ -38,6 +41,7 @@ function scheduleSave(): void {
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   model: null,
+  defaultBackend: null,
   lastOpenDocIds: [],
   loaded: false,
 
@@ -51,6 +55,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const data: AppSettings = await res.json();
       set({
         model: data.model ?? null,
+        defaultBackend: data.defaultBackend ?? null,
         lastOpenDocIds: data.lastOpenDocIds ?? [],
         loaded: true,
       });
@@ -61,6 +66,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   setModel: (id) => {
     set({ model: id });
+    scheduleSave();
+  },
+
+  setDefaultBackend: (backend) => {
+    set({ defaultBackend: backend });
     scheduleSave();
   },
 

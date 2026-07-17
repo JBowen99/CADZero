@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpFromLine,
+  Box,
   Boxes,
   FilePlus2,
   FolderOpen,
@@ -14,13 +15,6 @@ import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -33,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
-import type { BackendName, ExportFormat } from "~/types";
+import type { ExportFormat } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
@@ -42,6 +36,7 @@ import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { WindowControls } from "~/components/WindowControls";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
+const BUILD123D_ONLY_FORMATS: ExportFormat[] = ["step"];
 
 function PartNameControl() {
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
@@ -111,11 +106,10 @@ function PartNameControl() {
 export function Toolbar() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const backend = useModelStore((s) => s.backend);
-  const setBackend = useModelStore((s) => s.setBackend);
+  const language = useModelStore((s) => s.language);
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
-  const newTab = useDocumentsStore((s) => s.newTab);
+  const setNewPartDialogOpen = useDocumentsStore((s) => s.setNewPartDialogOpen);
   const saveActiveNow = useDocumentsStore((s) => s.saveActiveNow);
   const activeId = useDocumentsStore((s) => s.activeId);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
@@ -124,13 +118,6 @@ export function Toolbar() {
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-
-  const handleBackendChange = (value: string) => {
-    setBackend(value as BackendName);
-    toast.info(
-      `Switched to ${value === "openscad" ? "OpenSCAD" : "Build123D"} backend`,
-    );
-  };
 
   const handleExport = async (format: ExportFormat) => {
     if (!activeId) {
@@ -156,7 +143,7 @@ export function Toolbar() {
   const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
   const handleNew = () => {
-    newTab();
+    setNewPartDialogOpen(true);
   };
 
   const handleSave = async () => {
@@ -245,21 +232,44 @@ export function Toolbar() {
               .{format}
             </DropdownMenuItem>
           ))}
+          {language === "build123d" && (
+            <>
+              <DropdownMenuSeparator />
+              {BUILD123D_ONLY_FORMATS.map((format) => (
+                <DropdownMenuItem
+                  key={format}
+                  onSelect={() => handleExport(format)}
+                  className="capitalize"
+                >
+                  .{format}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    B-rep
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <PartNameControl />
 
       <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-        <Select value={backend} onValueChange={handleBackendChange}>
-          <SelectTrigger className="h-7 w-[150px] text-xs" size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openscad">OpenSCAD</SelectItem>
-            <SelectItem value="build123d">Build123D</SelectItem>
-          </SelectContent>
-        </Select>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex h-7 items-center gap-1.5 rounded-md border bg-background/60 px-2 text-xs font-medium">
+              {language === "build123d" ? (
+                <Boxes className="size-3.5 text-primary" />
+              ) : (
+                <Box className="size-3.5 text-primary" />
+              )}
+              <span>{language === "build123d" ? "Build123D" : "OpenSCAD"}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Backend is locked at part creation
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <WindowControls />

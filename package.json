@@ -12,6 +12,7 @@
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
+    "setup:python": "bash scripts/setup-python.sh",
     "dev:server": "node --env-file-if-exists=server/.env --import tsx --watch server/index.ts",
     "start:server": "node --env-file-if-exists=server/.env --import tsx server/index.ts",
     "dev:all": "concurrently -k -n server,web -c green,cyan \"pnpm dev:server\" \"pnpm dev\"",
