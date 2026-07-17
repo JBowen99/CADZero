@@ -58,6 +58,7 @@ interface DocumentsState {
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
+  setActiveLanguage: (language: BackendName) => void;
   editActiveCode: (code: string) => void;
   clearCodeDirty: () => void;
   guardCodeDirty: () => Promise<boolean>;
@@ -273,6 +274,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
 
     patchActiveDoc: (patch) => {
       setActiveDocFields(patch);
+    },
+
+    setActiveLanguage: (language) => {
+      setActiveDocFields({ language });
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (doc) mirrorToModel(doc);
     },
 
     editActiveCode: (code) => {

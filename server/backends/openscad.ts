@@ -4,24 +4,13 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../env";
+import type { ExportResult, RenderResult } from "./types";
+
+export type { ExportResult, RenderResult } from "./types";
 
 const RENDER_TIMEOUT_MS = 30_000;
 const VERSION_TIMEOUT_MS = 3_000;
 const MAX_BUFFER = 20 * 1024 * 1024;
-
-export interface RenderResult {
-  ok: boolean;
-  stl?: Buffer;
-  stderr: string;
-  durationMs: number;
-}
-
-export interface ExportResult {
-  ok: boolean;
-  data?: Buffer;
-  stderr: string;
-  durationMs: number;
-}
 
 interface ExecError extends Error {
   stderr?: string;

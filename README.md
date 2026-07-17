@@ -5,9 +5,10 @@ CADZero generates parametric CAD code, executes it, and renders the resulting 3D
 mesh in a real-time viewport — then keeps refining the model through conversation.
 
 It is designed as an AI-powered parametric modeling IDE rather than an editor for
-a single CAD language. The first supported modeling backend is **OpenSCAD**, with
-**Build123D** planned as an alternative. The frontend never cares which engine is
-running; every backend exposes the same interface.
+a single CAD language. It supports two modeling backends: **OpenSCAD** (external
+CLI) and **Build123D** (Python over the OpenCascade B-rep kernel, enabling STEP
+export). The frontend never cares which engine is running; every backend exposes
+the same interface.
 
 > **Platform status:** CADZero currently targets **Linux**. Windows and macOS
 > support will come later.
@@ -29,8 +30,9 @@ User ──▶ AI Conversation ──▶ Modeling Backend (OpenSCAD)
 - **Chat** — Streamed AI conversation (Vercel AI SDK over OpenRouter) with
   Plan / Chat / Build modes.
 - **Build** — The model calls an `update_model` tool; the server runs the
-  `openscad` CLI, parses the STL into a mesh, and streams it to the viewport. If
-  a render fails, the model reads the error and self-corrects.
+  selected backend (OpenSCAD CLI, or Build123D via a persistent Python worker
+  over OpenCascade), parses the STL into a mesh, and streams it to the viewport.
+  If a render fails, the model reads the error and self-corrects.
 - **Viewport** — three.js / React Three Fiber with orbit/pan/zoom, view modes
   (shaded / solid / wireframe), grid, and a view cube.
 - **Persistence** — Each part is a self-contained `.cadz` SQLite file
@@ -50,7 +52,7 @@ User ──▶ AI Conversation ──▶ Modeling Backend (OpenSCAD)
 | State           | Zustand                                                   |
 | Build tool      | Vite 8                                                    |
 | AI backend      | Hono + Vercel AI SDK v7 + OpenRouter                      |
-| CAD kernel      | OpenSCAD (external CLI, spawned by Node)                  |
+| CAD kernel      | OpenSCAD (external CLI) **and** Build123D (OpenCascade, spawned Python) |
 | Persistence     | better-sqlite3 (`.cadz` SQLite part files)               |
 | Package manager | pnpm                                                      |
 
@@ -60,12 +62,20 @@ User ──▶ AI Conversation ──▶ Modeling Backend (OpenSCAD)
 
 1. **Node.js 22+** — <https://nodejs.org> (or via your distro / nvm)
 2. **pnpm** — `corepack enable && corepack prepare pnpm@latest --activate`
-3. **OpenSCAD** — required for geometry generation in Build mode:
+3. **OpenSCAD** — required for OpenSCAD parts in Build mode:
    - Fedora / RHEL: `sudo dnf install openscad`
    - Debian / Ubuntu: `sudo apt install openscad`
    - (If `openscad` isn't on `PATH`, set `OPENSCAD_PATH` to its location.)
-4. **OpenRouter API key** — create one at <https://openrouter.ai/keys>
-5. *(Optional, only for `.deb` packaging)* `libxcrypt-compat`:
+4. **Build123D runtime (optional, for Build123D parts + STEP export)** — a
+   self-contained CPython 3.12 with `build123d` + OpenCascade (OCP) is fetched
+   on demand:
+   ```bash
+   pnpm setup:python      # downloads CPython 3.12 + pip installs build123d (~200MB)
+   ```
+   This is **not** required if you only use OpenSCAD. To point the backend at a
+   different Python instead, set `PYTHON_PATH` in `server/.env`.
+5. **OpenRouter API key** — create one at <https://openrouter.ai/keys>
+6. *(Optional, only for `.deb` packaging)* `libxcrypt-compat`:
    - Fedora: `sudo dnf install libxcrypt-compat`
    - Debian: `sudo apt install libcrypt1`
 
@@ -149,6 +159,7 @@ pnpm package:linux
 
 ```bash
 pnpm install          # install dependencies
+pnpm setup:python     # fetch the Build123D Python runtime (optional, ~200MB)
 pnpm dev              # web dev server (http://localhost:5173)
 pnpm dev:server       # AI backend (http://localhost:8787)
 pnpm dev:all          # backend + web dev server together

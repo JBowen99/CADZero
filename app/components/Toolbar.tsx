@@ -42,6 +42,7 @@ import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { WindowControls } from "~/components/WindowControls";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
+const BUILD123D_ONLY_FORMATS: ExportFormat[] = ["step"];
 
 function PartNameControl() {
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
@@ -111,8 +112,7 @@ function PartNameControl() {
 export function Toolbar() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const backend = useModelStore((s) => s.backend);
-  const setBackend = useModelStore((s) => s.setBackend);
+  const language = useModelStore((s) => s.language);
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
   const newTab = useDocumentsStore((s) => s.newTab);
@@ -120,15 +120,23 @@ export function Toolbar() {
   const activeId = useDocumentsStore((s) => s.activeId);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
+  const setActiveLanguage = useDocumentsStore((s) => s.setActiveLanguage);
   const root = useWorkspaceStore((s) => s.root);
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
 
   const handleBackendChange = (value: string) => {
-    setBackend(value as BackendName);
+    const next = value as BackendName;
+    if (activeId) {
+      toast.info(
+        `Backend is locked once a part is created — the new part button starts a ${next === "openscad" ? "OpenSCAD" : "Build123D"} part.`,
+      );
+      return;
+    }
+    setActiveLanguage(next);
     toast.info(
-      `Switched to ${value === "openscad" ? "OpenSCAD" : "Build123D"} backend`,
+      `New part set to ${next === "openscad" ? "OpenSCAD" : "Build123D"}`,
     );
   };
 
@@ -245,13 +253,30 @@ export function Toolbar() {
               .{format}
             </DropdownMenuItem>
           ))}
+          {language === "build123d" && (
+            <>
+              <DropdownMenuSeparator />
+              {BUILD123D_ONLY_FORMATS.map((format) => (
+                <DropdownMenuItem
+                  key={format}
+                  onSelect={() => handleExport(format)}
+                  className="capitalize"
+                >
+                  .{format}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    B-rep
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <PartNameControl />
 
       <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-        <Select value={backend} onValueChange={handleBackendChange}>
+        <Select value={language} onValueChange={handleBackendChange}>
           <SelectTrigger className="h-7 w-[150px] text-xs" size="sm">
             <SelectValue />
           </SelectTrigger>
