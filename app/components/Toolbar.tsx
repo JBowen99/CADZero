@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpFromLine,
+  Box,
   Boxes,
   FilePlus2,
   FolderOpen,
@@ -14,13 +15,6 @@ import { toast } from "sonner";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -33,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
-import type { BackendName, ExportFormat } from "~/types";
+import type { ExportFormat } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
@@ -115,30 +109,15 @@ export function Toolbar() {
   const language = useModelStore((s) => s.language);
   const exportModel = useModelStore((s) => s.exportModel);
   const isExporting = useModelStore((s) => s.isExporting);
-  const newTab = useDocumentsStore((s) => s.newTab);
+  const setNewPartDialogOpen = useDocumentsStore((s) => s.setNewPartDialogOpen);
   const saveActiveNow = useDocumentsStore((s) => s.saveActiveNow);
   const activeId = useDocumentsStore((s) => s.activeId);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
-  const setActiveLanguage = useDocumentsStore((s) => s.setActiveLanguage);
   const root = useWorkspaceStore((s) => s.root);
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-
-  const handleBackendChange = (value: string) => {
-    const next = value as BackendName;
-    if (activeId) {
-      toast.info(
-        `Backend is locked once a part is created — the new part button starts a ${next === "openscad" ? "OpenSCAD" : "Build123D"} part.`,
-      );
-      return;
-    }
-    setActiveLanguage(next);
-    toast.info(
-      `New part set to ${next === "openscad" ? "OpenSCAD" : "Build123D"}`,
-    );
-  };
 
   const handleExport = async (format: ExportFormat) => {
     if (!activeId) {
@@ -164,7 +143,7 @@ export function Toolbar() {
   const toggleTheme = () => setTheme(isDark ? "light" : "dark");
 
   const handleNew = () => {
-    newTab();
+    setNewPartDialogOpen(true);
   };
 
   const handleSave = async () => {
@@ -276,15 +255,21 @@ export function Toolbar() {
       <PartNameControl />
 
       <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-        <Select value={language} onValueChange={handleBackendChange}>
-          <SelectTrigger className="h-7 w-[150px] text-xs" size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="openscad">OpenSCAD</SelectItem>
-            <SelectItem value="build123d">Build123D</SelectItem>
-          </SelectContent>
-        </Select>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex h-7 items-center gap-1.5 rounded-md border bg-background/60 px-2 text-xs font-medium">
+              {language === "build123d" ? (
+                <Boxes className="size-3.5 text-primary" />
+              ) : (
+                <Box className="size-3.5 text-primary" />
+              )}
+              <span>{language === "build123d" ? "Build123D" : "OpenSCAD"}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Backend is locked at part creation
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <WindowControls />

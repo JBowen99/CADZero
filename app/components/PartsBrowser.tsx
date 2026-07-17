@@ -35,7 +35,7 @@ export function PartsBrowser({ open, onOpenChange }: PartsBrowserProps) {
   const parts = useWorkspaceStore((s) => s.parts);
   const refresh = useWorkspaceStore((s) => s.refresh);
   const openPart = useDocumentsStore((s) => s.openPart);
-  const newTab = useDocumentsStore((s) => s.newTab);
+  const setNewPartDialogOpen = useDocumentsStore((s) => s.setNewPartDialogOpen);
   const closeTab = useDocumentsStore((s) => s.closeTab);
   const openDocs = useDocumentsStore((s) => s.openDocs);
   const activePartId = useDocumentsStore((s) => s.activeId);
@@ -48,7 +48,7 @@ export function PartsBrowser({ open, onOpenChange }: PartsBrowserProps) {
 
   const handleNew = () => {
     onOpenChange(false);
-    newTab();
+    setNewPartDialogOpen(true);
   };
 
   const handleDelete = async (part: PartSummary) => {
@@ -68,7 +68,8 @@ export function PartsBrowser({ open, onOpenChange }: PartsBrowserProps) {
     const tab = openDocs.find((d) => d.partId === part.id);
     if (tab) {
       closeTab(tab.clientId);
-      if (useDocumentsStore.getState().openDocs.length === 0) newTab();
+      if (useDocumentsStore.getState().openDocs.length === 0)
+        setNewPartDialogOpen(true);
     }
     await refresh();
     toast.success(`Deleted "${part.name}"`);
@@ -121,6 +122,7 @@ export function PartsBrowser({ open, onOpenChange }: PartsBrowserProps) {
                       {part.name}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
+                      {part.language === "build123d" ? "Build123D" : "OpenSCAD"} ·{" "}
                       {part.headRevId ? "saved" : "empty"} ·{" "}
                       {timeAgo(part.updatedAt)}
                     </div>

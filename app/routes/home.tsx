@@ -6,6 +6,7 @@ import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { NamePrompt } from "~/components/NamePrompt";
+import { NewPartDialog } from "~/components/NewPartDialog";
 import { CodeDirtyGuardDialog } from "~/components/CodeDirtyGuardDialog";
 import { ExportDialog } from "~/components/ExportDialog";
 import { ChatProvider } from "~/lib/ai-chat";
@@ -21,6 +22,7 @@ import { TooltipProvider } from "~/components/ui/tooltip";
 import { useConnectionStore } from "~/store/useConnectionStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
+import { useCapabilitiesStore } from "~/store/useCapabilitiesStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 
 export function meta({}: Route.MetaArgs) {
@@ -64,6 +66,7 @@ function Workspace() {
 
   useEffect(() => {
     void useSettingsStore.getState().load();
+    void useCapabilitiesStore.getState().load();
     void initWs();
   }, [initWs]);
 
@@ -73,7 +76,7 @@ function Workspace() {
     reopenedRef.current = true;
     const ids = lastOpenDocIds.filter((id) => parts.some((p) => p.id === id));
     if (ids.length === 0) {
-      useDocumentsStore.getState().newTab();
+      useDocumentsStore.getState().setNewPartDialogOpen(true);
       return;
     }
     const docs = useDocumentsStore.getState();
@@ -118,6 +121,7 @@ function Workspace() {
       </ResizablePanelGroup>
       {wsInitialized && !configured && <WorkspaceSetup />}
       <NamePrompt />
+      <NewPartDialog />
       <CodeDirtyGuardDialog />
       <ExportDialog />
     </>

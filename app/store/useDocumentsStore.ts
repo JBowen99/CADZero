@@ -51,14 +51,14 @@ interface DocumentsState {
   activeMeta: PartSummary | null;
   previewingRevId: string | null;
   namePromptOpen: boolean;
+  newPartDialogOpen: boolean;
   saveSignal: number;
   codeDirtyGuard: { open: boolean; resolve?: (ok: boolean) => void } | null;
   openPart: (id: string, opts?: { background?: boolean }) => Promise<void>;
-  newTab: () => void;
+  newTab: (language: BackendName) => void;
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
-  setActiveLanguage: (language: BackendName) => void;
   editActiveCode: (code: string) => void;
   clearCodeDirty: () => void;
   guardCodeDirty: () => Promise<boolean>;
@@ -84,6 +84,7 @@ interface DocumentsState {
   saveActiveNow: () => Promise<void>;
   resolveName: (name: string) => Promise<void>;
   setNamePromptOpen: (open: boolean) => void;
+  setNewPartDialogOpen: (open: boolean) => void;
 }
 
 async function decodeMesh(res: Response): Promise<TriangleMesh> {
@@ -165,6 +166,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     activeMeta: null,
     previewingRevId: null,
     namePromptOpen: false,
+    newPartDialogOpen: false,
     saveSignal: 0,
     codeDirtyGuard: null,
 
@@ -214,7 +216,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!opts?.background) mirrorActiveToModel(doc);
     },
 
-    newTab: () => {
+    newTab: (language) => {
       const doc: OpenDoc = {
         clientId: genClientId(),
         partId: null,
@@ -222,7 +224,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         mesh: null,
         cadCode: "",
         meshCode: null,
-        language: "openscad",
+        language,
         chat: [],
         chatLoaded: true,
         chatLoading: false,
@@ -274,14 +276,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
 
     patchActiveDoc: (patch) => {
       setActiveDocFields(patch);
-    },
-
-    setActiveLanguage: (language) => {
-      setActiveDocFields({ language });
-      const doc = get().openDocs.find(
-        (d) => d.clientId === get().activeClientId,
-      );
-      if (doc) mirrorToModel(doc);
     },
 
     editActiveCode: (code) => {
@@ -505,7 +499,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       set((s) => {
         const openDocs = s.openDocs.map((d) =>
           d.clientId === activeClientId
-            ? { ...d, partId, meta, named, pendingName, saveState: "saved" as const }
+            ? { ...d, partId, meta, named, pendingName, language: data.language, saveState: "saved" as const }
             : d,
         );
         return buildState(openDocs, s.activeClientId);
@@ -601,6 +595,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     },
 
     setNamePromptOpen: (open) => set({ namePromptOpen: open }),
+    setNewPartDialogOpen: (open) => set({ newPartDialogOpen: open }),
 
     saveActiveNow: async () => {
       const active = get().openDocs.find(

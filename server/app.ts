@@ -208,9 +208,15 @@ app.patch("/api/parts/:id", async (c) => {
   const body: {
     name?: string;
     type?: PartType;
-    language?: BackendName;
+    language?: unknown;
   } | null = await c.req.json().catch(() => null);
   if (!body) return c.json({ error: "invalid body" }, 400);
+  if (body.language !== undefined) {
+    return c.json(
+      { error: "A part's backend language is immutable." },
+      409,
+    );
+  }
   const meta = updatePartMeta(root, c.req.param("id"), body);
   if (!meta) return c.json({ error: "part not found" }, 404);
   return c.json(meta);
@@ -329,8 +335,18 @@ app.post("/api/parts/:id/revisions", async (c) => {
     return c.json({ error: "code required" }, 400);
   }
   const partId = c.req.param("id");
-  const language: BackendName =
-    body.language === "build123d" ? "build123d" : "openscad";
+  const existingMeta = getPart(root, partId);
+  if (!existingMeta) return c.json({ error: "part not found" }, 404);
+  if (
+    body.language !== undefined &&
+    body.language !== existingMeta.language
+  ) {
+    return c.json(
+      { error: "A part's backend language is immutable." },
+      409,
+    );
+  }
+  const language: BackendName = existingMeta.language;
 
   let mesh: { positions: number[] | Float32Array; triangleCount: number } | null = null;
   let renderError: string | null = null;
@@ -467,6 +483,17 @@ function makeUpdateModelTool(opts: {
         .describe("A short user-facing description of what changed."),
     }),
     execute: async ({ code, language, message }) => {
+      if (opts.workspaceRoot && opts.partId) {
+        const existing = getPart(opts.workspaceRoot, opts.partId);
+        if (existing && existing.language !== language) {
+          return {
+            success: false,
+            message: `This is a ${existing.language} part — its backend is locked at creation and can't change. Call update_model again with language="${existing.language}" and a complete ${existing.language} script.`,
+            stderr: "",
+            durationMs: 0,
+          };
+        }
+      }
       const rendered = await renderFor(language, code);
       if (!rendered.ok || !rendered.stl) {
         const backendLabel = language === "build123d" ? "Build123D" : "OpenSCAD";

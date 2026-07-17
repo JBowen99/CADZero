@@ -85,6 +85,7 @@ export interface WorkspaceInfo {
 
 export interface AppSettings {
   model?: string | null;
+  defaultBackend?: BackendName;
   panelSplit?: number;
   viewMode?: string;
   gridVisible?: boolean;
