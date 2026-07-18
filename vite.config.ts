@@ -7,4 +7,18 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  server: {
+    watch: {
+      // Packaged Electron + embedded Python trees are huge and exhaust inotify.
+      ignored: [
+        "**/release/**",
+        "**/linux-unpacked/**",
+        "**/dist-electron/**",
+        "**/build/**",
+        "**/server/python/**",
+        "**/server/python-*/**",
+        "**/.git/**",
+      ],
+    },
+  },
 });

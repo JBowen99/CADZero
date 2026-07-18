@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 type ElectronWindowAPI = {
   isElectron: true;
@@ -18,8 +18,18 @@ function getAPI(): ElectronWindowAPI | null {
   return null;
 }
 
+function subscribe() {
+  return () => {};
+}
+
 export function useElectronWindow() {
-  const api = getAPI();
+  // Avoid SSR/hydration mismatch: only treat as Electron after mount.
+  const mounted = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  );
+  const api = mounted ? getAPI() : null;
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {

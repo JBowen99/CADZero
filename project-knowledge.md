@@ -189,7 +189,8 @@ pnpm package:win      # check:python + build:desktop + electron-builder --win ->
 app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
-│   ├── Toolbar.tsx          # app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), and a READ-ONLY language badge (locked at creation — the old runtime switcher is gone)
+│   ├── Toolbar.tsx          # frameless title bar (`app-drag`): app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), READ-ONLY language badge, WindowControls (Electron-only)
+│   ├── WindowControls.tsx   # custom min/max/close for frameless Electron; uses onMouseDown + inline WebkitAppRegion:no-drag (title-bar drag swallows click)
 │   ├── Viewport.tsx         # R3F Canvas; off-thread geometry (normals + crease edges); imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge priority = "Processing mesh…" (worker) > "Rendering…" (isRendering|isBuilding) > amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio; SelectionIndicator sits beside it (not bottom-right). SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay. Geometry/edge state commits via startTransition. **No-tabs empty state:** when `openDocs.length === 0`, renders a `NoTabsHint` overlay with "Open part" (PartsBrowser) and "New part" (NewPartDialog) buttons instead of the usual `EmptyHint`.
 │   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send. "Assistant is thinking…" via AssistantStatusMessage only while submitted/streaming with no visible assistant parts yet. **No-active-doc state:** when `openDocs.length === 0`, renders a `NoDocChat` call-to-action ("Create a new part to begin" + New part button) instead of messages/example prompts; the textarea, send button, and attach button are disabled with placeholder "Create a new part to start chatting".
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts; while tool input-streaming shows AssistantStatusMessage ("Generating code…") and DEFERS mounting CodeBlock (rAF + startTransition) so status paints first; restore-event messages render as a centered rounded muted pill with RotateCcw (message.kind === "restore"); user msgs with metadata.selection show MessageSelectionContext
@@ -212,6 +213,7 @@ app/
 │   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
 │   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
+│   ├── useElectronWindow.ts # reads window.electronAPI after mount (useSyncExternalStore); minimize/toggleMaximize/close + maximized state
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages + LiveMessagesRef contexts. **Display vs live messages:** State context exposes displayMessages (strips growing tool `code` while `input-streaming` so context stays referentially stable); `useChatLiveMessagesRef()` always has full streaming code for persist/tab-sync/model-sync. sendMessage wraps withSelectionMetadata; transport injects mode/model/cadCode/language/partId/selection (live store, else last user metadata)
 │   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / restoreRevisionUrl / messagesUrl / providerUrl / providerKeyUrl(name) (derived from VITE_AI_API_URL or app://bundle/api/chat)
@@ -278,10 +280,17 @@ server/                       # AI chat backend (TypeScript) — embedded in-pro
 
 ```
 electron/                    # Electron main process (Node side, NOT the React app)
-├── main.ts                  # BrowserWindow, app:// protocol (serves renderer + proxies /api/* to the in-process Hono server on 127.0.0.1:8787), **embeds the Hono server in-process** (startEmbeddedBackend / stopEmbeddedBackend), single-instance lock, before-quit shutdown; dev loads :5173, packaged loads `app://bundle/` (NOT /index.html — RR index route only matches pathname `/`)
+├── main.ts                  # frameless BrowserWindow (icon from resources/icon.png), app:// protocol (serves renderer + proxies /api/* to the in-process Hono server on 127.0.0.1:8787), **embeds the Hono server in-process** (startEmbeddedBackend / stopEmbeddedBackend), window IPC (minimize/maximize/close via event.sender), single-instance lock, before-quit shutdown; dev loads :5173, packaged loads `app://bundle/` (NOT /index.html — RR index route only matches pathname `/`)
 ├── credentials.ts           # SafeStorageCredentialStore — encrypts API keys via electron safeStorage → base64 in ~/.cadzero/credentials.json; plaintext fallback with console warning when safeStorage.isEncryptionAvailable() === false
-├── preload.ts               # contextBridge stub (contextIsolation-safe) exposes { isElectron }
-└── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS); externals electron + node builtins + server runtime deps (hono, @hono/node-server, ai, zod, @openrouter/ai-sdk-provider, better-sqlite3) so they're loaded from node_modules at runtime
+├── preload.ts               # contextBridge exposes electronAPI: { isElectron, minimize, toggleMaximize, close, isMaximized, onMaximizeChange }
+└── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS); publicDir:false (don't copy public/ into dist-electron); externals electron + node builtins + server runtime deps (hono, @hono/node-server, ai, zod, @openrouter/ai-sdk-provider, better-sqlite3) so they're loaded from node_modules at runtime
+```
+
+```
+resources/                   # desktop branding / packaging assets (committed)
+├── logo.svg                 # source logo
+├── icon.png                 # 512×512 app icon (BrowserWindow + electron-builder linux)
+└── icon.ico                 # Windows icon (electron-builder win + public/favicon.ico source)
 ```
 
 ```
@@ -294,7 +303,8 @@ scripts/
 
 `dist-electron/` and `release/` are build outputs (gitignored). The renderer
 build (`build/client/`) is still produced by `react-router build` and is the
-exact same SPA as the web app — Electron just loads it.
+exact same SPA as the web app — Electron just loads it. Do **not** put app icons
+under `build/` — that directory is wiped by `react-router build`.
 
 ---
 
@@ -769,7 +779,22 @@ successful render.
   **absolute** asset paths (`/assets/entry.client-…js`, and inline
   `import("/assets/…")`). Under `file://` those resolve to the filesystem root
   and break. The `app://` origin makes `/assets/…` resolve correctly with zero
-  changes to Vite `base` or the RR config. (We never touch `vite.config.ts`.)
+  changes to Vite `base` or the RR config. Don't set `base: './'` as a shortcut
+  for `file://` — it doesn't reliably rewrite RR's inline dynamic imports.
+- **App icon lives in `resources/`.** Source is `resources/logo.svg`; packaging
+  uses `resources/icon.png` (512) and `resources/icon.ico`. `package.json`
+  `build.icon` / `win.icon` point there; `BrowserWindow({ icon })` uses
+  `app.getAppPath()/resources/icon.png`. Both icon files are listed in
+  electron-builder `files` so they ship inside the asar. Regenerate PNG/ICO
+  from the SVG after logo changes (`magick` / ImageMagick).
+- **Frameless window + custom controls.** `frame: false`; the Toolbar is the
+  drag region (`app-drag` / `-webkit-app-region: drag`). `WindowControls`
+  must use **`onMouseDown`** (not `onClick`) plus inline
+  `WebkitAppRegion: "no-drag"` — the drag region swallows the click sequence
+  on Linux. IPC handlers resolve the window via
+  `BrowserWindow.fromWebContents(event.sender)`, not a stored `mainWindow`
+  ref. `useElectronWindow` only reads `window.electronAPI` after mount
+  (`useSyncExternalStore`) to avoid SSR/hydration mismatch.
 - **main + preload are bundled to CommonJS `.cjs`.** `package.json` has
   `"type": "module"`, which would make `.js` outputs ESM — but a **sandboxed
   preload must be CJS** (`sandbox: true`). Emitting `.cjs` sidesteps both: Node
@@ -777,6 +802,12 @@ successful render.
   `electron` + all Node builtins and targets `node22`.
 - **Secure window defaults — keep them:** `contextIsolation: true`,
   `nodeIntegration: false`, `sandbox: true`. The renderer is pure browser code.
+- **Vite must ignore packaged Python trees.** `release/` and `server/python/`
+  are multi‑GB; if the RR/Vite watcher scans them you hit
+  `ENOSPC: System limit for number of file watchers reached` and `react-router
+  dev` dies. `vite.config.ts` `server.watch.ignored` excludes `release/`,
+  `linux-unpacked/`, `dist-electron/`, `build/`, `server/python/**`, etc.
+  Keep that list current when adding other huge artifacts.
 - **Resolve paths with `app.getAppPath()`**, NOT `import.meta.url` / `__dirname`.
   In the bundled CJS output `import.meta.url` is unreliable, and `__dirname`
   isn't typed in ESM source. `app.getAppPath()` works uniformly in dev (project
@@ -784,8 +815,8 @@ successful render.
   transparently — so the `app://` handler's `readFile`/`stat`/`existsSync` work
   on the packed archive without extra setup.
 - **`webPreferences.preload`** points at `dist-electron/preload.cjs`. We include
-  `dist-electron/**` and `build/client/**` in electron-builder `files`, so both
-  ship inside the asar.
+  `dist-electron/**`, `build/client/**`, and `resources/icon.{png,ico}` in
+  electron-builder `files`, so they ship inside the asar.
 - **`main` field** in package.json is `dist-electron/main.cjs` — that's what
   `electron .` and the packaged app execute.
 - **The desktop app proxies `/api/*` to the backend (no CORS).** The `app://`
@@ -920,6 +951,18 @@ to ESM unless you also turn sandboxing off (we don't want to).
 ### 11. Don't use `import.meta.url` / `__dirname` in electron main
 The CJS bundle doesn't preserve `import.meta.url`, and `__dirname` isn't
 declared in ESM source (TS error). Use `app.getAppPath()` for all path roots.
+
+### 11b. Frameless title-bar buttons need `onMouseDown` + `no-drag`
+With `-webkit-app-region: drag` on the Toolbar, `onClick` on min/max/close often
+never fires (drag steals the gesture). Use `onMouseDown` + inline
+`WebkitAppRegion: "no-drag"` (and `pointer-events-none` on icon SVGs). CSS
+`.no-drag` alone is not enough on all Linux WMs.
+
+### 11c. ENOSPC from watching `release/` / `server/python/`
+After `pnpm package:*`, `release/linux-unpacked/resources/python-runtime/` is
+huge. Vite will happily watch it until inotify is exhausted. Ignore those paths
+in `vite.config.ts` `server.watch.ignored` — raising `fs.inotify.max_user_watches`
+is a workaround, not the fix.
 
 ### 12. pnpm v11 blocks scripts on unapproved build deps
 After adding Electron, pnpm wrote `allowBuilds: { electron-winstaller: "set

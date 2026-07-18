@@ -1,4 +1,11 @@
-import { app, BrowserWindow, ipcMain, protocol, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  protocol,
+  shell,
+  type WebContents,
+} from "electron";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -51,6 +58,14 @@ function getPreloadPath(): string {
 
 function getRendererDir(): string {
   return path.join(app.getAppPath(), "build", "client");
+}
+
+function getIconPath(): string {
+  return path.join(app.getAppPath(), "resources", "icon.png");
+}
+
+function windowFromEvent(event: { sender: WebContents }): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
 function startEmbeddedBackend(): Promise<void> {
@@ -173,6 +188,7 @@ function createWindow(): void {
     frame: false,
     backgroundColor: "#0a0a0a",
     title: "CADZero",
+    icon: getIconPath(),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -220,14 +236,21 @@ app.whenReady().then(async () => {
     );
   }
 
-  ipcMain.on("window:minimize", () => mainWindow?.minimize());
-  ipcMain.on("window:toggle-maximize", () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    else mainWindow.maximize();
+  ipcMain.on("window:minimize", (event) => {
+    windowFromEvent(event)?.minimize();
   });
-  ipcMain.on("window:close", () => mainWindow?.close());
-  ipcMain.handle("window:is-maximized", () => mainWindow?.isMaximized() ?? false);
+  ipcMain.on("window:toggle-maximize", (event) => {
+    const win = windowFromEvent(event);
+    if (!win) return;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+  ipcMain.on("window:close", (event) => {
+    windowFromEvent(event)?.close();
+  });
+  ipcMain.handle("window:is-maximized", (event) => {
+    return windowFromEvent(event)?.isMaximized() ?? false;
+  });
 
   createWindow();
 
