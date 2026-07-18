@@ -29,7 +29,8 @@ creation, and Build123D parts support **face/edge/vertex selection** as chat
 context. **The desktop app is now fully self-contained** — the Hono backend
 runs **in-process** inside Electron's main process (no separate server to
 launch); the **Build123D Python runtime** (CPython 3.12 + build123d + OCP) is
-**bundled as `extraResources`** inside the AppImage; and the OpenRouter API
+**bundled as `extraResources`** inside the AppImage / Windows NSIS installer;
+and the OpenRouter API
 key is entered via a first-run dialog / Settings UI and stored **encrypted**
 via Electron `safeStorage`. See `AI CAD MVP Project Specification.md` for the
 full vision.
@@ -49,9 +50,10 @@ full vision.
 > `build123d.Shape`/`Compound`); the worker exports STL/STEP from it — scripts
 > must **not** call export functions, `print`, or `sys.exit`. Runtime: a
 > self-contained CPython 3.12 (+ `build123d`/`OCP`) is fetched into
-> `server/python/` via **`pnpm setup:python`** (`scripts/setup-python.sh`,
-> python-build-standalone); resolution is `PYTHON_PATH` env → bundled
-> `<cwd>/server/python/bin/python3` → system `python3` fallback. The viewport
+> `server/python/` via **`pnpm setup:python`** (`scripts/setup-python.mjs`,
+> python-build-standalone; Linux or Windows host); resolution is `PYTHON_PATH`
+> env → packaged `python-runtime/` → `<cwd>/server/python/` (win32:
+> `python.exe`; else `bin/python3`) → system `python`/`python3` fallback. The viewport
 > applies a `-π/2` X rotation to **OpenSCAD** meshes (Z-up→Y-up) but **no
 > rotation** to Build123D meshes (`Viewport.tsx` language-dependent group
 > rotation). STEP export is gated to Build123D parts (OpenSCAD→STEP returns
@@ -151,7 +153,7 @@ intentionally deferred — a storage layer will be added later.
 | Package manager  | **pnpm** (pnpm-lock.yaml)                               |
 | Build tool       | Vite 8                                                  |
 | Desktop shell    | **Electron 43** (renderer = the React Router app)       |
-| Packaging        | electron-builder (Linux: **AppImage only**)              |
+| Packaging        | electron-builder (Linux: **AppImage**; Windows: **NSIS**) |
 | AI chat backend  | **Hono** (`server/`) + **Vercel AI SDK v7** + OpenRouter |
 | AI key storage   | **Electron safeStorage** (encrypted, `~/.cadzero/credentials.json`) |
 | Tool schemas     | **zod 4** (added for AI SDK `tool()` input schemas)        |
@@ -166,7 +168,7 @@ intentionally deferred — a storage layer will be added later.
 
 ```bash
 pnpm install          # install deps
-pnpm setup:python     # fetch the Build123D Python runtime into server/python/ (~1GB, REQUIRED before packaging)
+pnpm setup:python     # fetch host-OS Build123D Python runtime into server/python/ (~1GB, REQUIRED before packaging)
 pnpm dev              # web dev server on http://localhost:5173
 pnpm dev:server       # standalone AI backend (Hono) on http://localhost:8787
 pnpm dev:all          # backend + web dev server together (concurrently)
@@ -174,8 +176,9 @@ pnpm dev:desktop      # native Electron app + HMR (loads the dev server; backend
 pnpm run typecheck    # react-router typegen && tsc  (ALWAYS run before committing)
 pnpm run build        # production build (SPA)
 pnpm build:desktop    # build renderer + electron main (no packaging)
-pnpm check:python     # verify server/python/bin/python3 exists (pre-package gate)
-pnpm package:linux    # check:python + build:desktop + electron-builder -> release/*.AppImage (self-contained)
+pnpm check:python     # verify host Python binary exists (pre-package gate; scripts/check-python.mjs)
+pnpm package:linux    # check:python + build:desktop + electron-builder -> release/*.AppImage (run on Linux)
+pnpm package:win      # check:python + build:desktop + electron-builder --win -> release/*-setup.exe (run on Windows)
 ```
 
 ---
@@ -256,7 +259,7 @@ server/                       # AI chat backend (TypeScript) — embedded in-pro
 │   ├── types.ts              # RenderResult { ok; mesh?: TriangleMesh; topology?: Topology | null; stderr; durationMs } / ExportResult { ok; data?; ... }
 │   ├── index.ts              # DISPATCH: renderFor/exportFor(language, code[, ext]) → openscad or build123d
 │   ├── openscad.ts           # renderScad(code)→parses STL internally → {mesh, topology:null}; exportScad(code, ext); checkOpenScad()
-│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d uses worker.tessellate → {mesh, topology}; exportBuild123d; checkBuild123d; bundledPythonBin() resolves python via PYTHON_PATH → process.resourcesPath/python-runtime/bin/python3 (packaged) → <cwd>/server/python/bin/python3 (dev) → python3 (system). getWorkerScript() writes the inlined worker to a temp file at first use.
+│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d uses worker.tessellate → {mesh, topology}; exportBuild123d; checkBuild123d; bundledPythonBin() resolves python via PYTHON_PATH → process.resourcesPath/python-runtime/{bin/python3|python.exe} (packaged) → <cwd>/server/python/... (dev) → python3/python (system). getWorkerScript() writes the inlined worker to a temp file at first use.
 │   ├── build123d_worker_asset.ts # build123d_worker.py inlined as base64 (survives Vite CJS bundling; import.meta.url doesn't); regen via scripts/sync-build123d-worker.sh
 │   └── build123d_worker.py   # source-of-truth worker script (long-lived Python proc; edits require regenerating build123d_worker_asset.ts)
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
@@ -279,6 +282,14 @@ electron/                    # Electron main process (Node side, NOT the React a
 ├── credentials.ts           # SafeStorageCredentialStore — encrypts API keys via electron safeStorage → base64 in ~/.cadzero/credentials.json; plaintext fallback with console warning when safeStorage.isEncryptionAvailable() === false
 ├── preload.ts               # contextBridge stub (contextIsolation-safe) exposes { isElectron }
 └── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS); externals electron + node builtins + server runtime deps (hono, @hono/node-server, ai, zod, @openrouter/ai-sdk-provider, better-sqlite3) so they're loaded from node_modules at runtime
+```
+
+```
+scripts/
+├── setup-python.mjs         # cross-platform PBS fetch + build123d install (Linux/Windows)
+├── setup-python.sh          # thin wrapper → setup-python.mjs
+├── check-python.mjs         # pre-package gate (host python.exe or bin/python3)
+└── sync-build123d-worker.sh # regen build123d_worker_asset.ts from .py source
 ```
 
 `dist-electron/` and `release/` are build outputs (gitignored). The renderer
@@ -817,16 +828,20 @@ successful render.
 - **Build123D Python runtime is bundled as `extraResources`.** The full CPython
   3.12 + build123d + OCP (~1.1 GB on disk, but AppImage squashfs compresses it
   to ~300 MB) ships at `resources/python-runtime/` alongside `app.asar`.
+  Fetch via `pnpm setup:python` (`scripts/setup-python.mjs`) — downloads the
+  host PBS triple (`x86_64-unknown-linux-gnu` or `x86_64-pc-windows-msvc`).
   `bundledPythonBin()` in `server/backends/build123d.ts` resolves:
-  `PYTHON_PATH` env → `process.resourcesPath/python-runtime/bin/python3`
-  (packaged) → `<cwd>/server/python/bin/python3` (dev) → system `python3`.
+  `PYTHON_PATH` env → `process.resourcesPath/python-runtime/` +
+  `bin/python3` (Unix) or `python.exe` (win32) → `<cwd>/server/python/` same
+  layout (dev) → system `python3` / `python`. Package **on the same OS** as
+  the runtime (do not ship a Linux tree inside a Windows installer).
   The worker script (`build123d_worker.py`) is **inlined as base64** in
   `build123d_worker_asset.ts` and written to a temp file at first use (the
   `new URL("./build123d_worker.py", import.meta.url)` pattern broke under Vite
   CJS bundling — `import.meta.url` became `"" + {}.url` = `"undefined"`).
   Regenerate the asset after editing the worker:
-  `scripts/sync-build123d-worker.sh`. The `pnpm check:python` gate refuses to
-  package without the runtime (`pnpm setup:python` first).
+  `scripts/sync-build123d-worker.sh`. The `pnpm check:python` gate
+  (`scripts/check-python.mjs`) refuses to package without the runtime.
 - **`models.config.json` is imported directly, not file-read.** The old
   `fileURLToPath(import.meta.url)` lookup broke for the same CJS reason. Now a
   static `import modelsConfigJson from "./models.config.json"` (bundled inline,
@@ -910,9 +925,10 @@ declared in ESM source (TS error). Use `app.getAppPath()` for all path roots.
 After adding Electron, pnpm wrote `allowBuilds: { electron-winstaller: "set
 this to true or false" }` into `pnpm-workspace.yaml` and then **failed every
 `pnpm <script>`** with `ERR_PNPM_IGNORED_BUILDS` until resolved. We set
-`electron-winstaller: false` (it's a Windows-only packaging dep we don't need).
-If a script mysteriously fails right after installing something, check this file
-and approve/decline explicitly.
+`electron-winstaller: false` — that dep is for Squirrel.Windows; we ship
+**NSIS** (`package:win`) which does not need it. If a script mysteriously fails
+right after installing something, check this file and approve/decline
+explicitly.
 
 ### 13. electron-builder requires package metadata
 It errors out without `version`, and the **`.deb`** target (via the bundled
@@ -925,9 +941,26 @@ release.)
 electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
 `cannot open shared object file: libcrypt.so.1` on minimal/Fedora hosts, and
 Fedora 44 stopped shipping `libcrypt.so.1` by default. **AppImage builds fine
-without it** and is the only target we ship. To re-enable `.deb`, install the
-lib once (`sudo dnf install libxcrypt-compat`) and add `"deb"` back to the
+without it** and is the only Linux target we ship. To re-enable `.deb`, install
+the lib once (`sudo dnf install libxcrypt-compat`) and add `"deb"` back to the
 `linux.target` array in `package.json`.
+
+### 14b. Windows packaging is host-native (NSIS; no cross-build from Linux)
+`pnpm package:win` produces `release/CADZero-<version>-setup.exe` (NSIS x64,
+`artifactName` set in `package.json`). There is **no CI** yet — run the build
+on a Windows machine:
+
+```text
+pnpm install
+pnpm setup:python   # scripts/setup-python.mjs → x86_64-pc-windows-msvc PBS + python.exe
+pnpm package:win
+```
+
+`better-sqlite3` must rebuild for Electron's Windows ABI on that host
+(`postinstall` / `rebuild:native`). Do **not** copy a Linux `server/python/`
+tree into a Windows package. OpenSCAD stays external (install separately).
+`electron-winstaller` stays `false` in `pnpm-workspace.yaml` (Squirrel-only;
+we use NSIS).
 
 ### 16. Vite CJS lib mode breaks `new URL("./asset", import.meta.url)` — inline instead
 The electron main bundle is built with `lib: { formats: ["cjs"] }` (sandboxed
@@ -1083,7 +1116,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
 | Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json` (incl. `metadata.selection`), linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist from live messages (skipped while streaming, flush on idle/finish) + flush-on-switch + beforeunload keepalive |
 | Provider API-key flow (`/api/provider`, safeStorage) | **LIVE** — first-run non-dismissible `ProviderSetup` dialog after workspace pick; `SettingsDialog` (gear icon, before theme toggle) to view/change the key; `SafeStorageCredentialStore` encrypts via OS keychain (plaintext fallback on headless Linux); `GET /api/provider` returns only `{configured: boolean}` (never the key); `/api/chat` returns 401 with a clear hint when no key is set |
-| Self-contained desktop app (in-process server + bundled Python) | **LIVE** — Hono runs inside Electron main on 127.0.0.1:8787 (no separate process); CPython 3.12 + build123d + OCP bundled as `extraResources/python-runtime/`; single-instance lock; `pnpm package:linux` → `release/*.AppImage` (~465 MB) |
+| Self-contained desktop app (in-process server + bundled Python) | **LIVE** — Hono runs inside Electron main on 127.0.0.1:8787 (no separate process); CPython 3.12 + build123d + OCP bundled as `extraResources/python-runtime/`; single-instance lock; `pnpm package:linux` → `release/*.AppImage` (~465 MB); `pnpm package:win` → NSIS `release/*-setup.exe` (build on Windows) |
 | Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |
 
 The tool result (`BackendResult`-shaped) is what drives the viewport via
@@ -1107,9 +1140,10 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
    `127.0.0.1:8787`, `configureServer()` wires the `SafeStorageCredentialStore`,
    single-instance lock + clean `before-quit` shutdown. The Build123D Python
    runtime ships as `extraResources/python-runtime/`. `pnpm package:linux`
-   produces a single `release/*.AppImage` (~465 MB) with no external
-   dependencies (openscad still needs to be on the host's PATH for OpenSCAD
-   parts; Build123D is fully bundled).
+   produces a single `release/*.AppImage` (~465 MB); `pnpm package:win` (run
+   on Windows after `pnpm setup:python`) produces an NSIS
+   `release/*-setup.exe`. OpenSCAD still needs to be on the host's PATH for
+   OpenSCAD parts; Build123D is fully bundled.
 5. **Storage / persistence — in progress (Phase plan):**
    - **Phase 0 ✅ DONE** — `.cadz` SQLite container (`server/storage/`), workspace
      root, and `/api/settings` are live. Part-domain functions exist (create/list/

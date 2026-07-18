@@ -24,19 +24,25 @@ function getWorkerScript(): string {
   return workerScriptPath;
 }
 
+/** Relative path segments for the host PBS layout under python-runtime / server/python. */
+function pythonRelParts(): string[] {
+  return process.platform === "win32" ? ["python.exe"] : ["bin", "python3"];
+}
+
 function bundledPythonBin(): string | null {
   // Explicit override via env/config
   if (config.pythonPath && config.pythonPath.length > 0) {
     return existsSync(config.pythonPath) ? config.pythonPath : null;
   }
+  const rel = pythonRelParts();
   // Packaged Electron app: runtime shipped as extraResources/python-runtime
   const resourcesPath = process.resourcesPath;
   if (resourcesPath) {
-    const candidate = join(resourcesPath, "python-runtime", "bin", "python3");
+    const candidate = join(resourcesPath, "python-runtime", ...rel);
     if (existsSync(candidate)) return candidate;
   }
-  // Dev mode: runtime at <repo>/server/python/bin/python3
-  const dev = join(process.cwd(), "server", "python", "bin", "python3");
+  // Dev mode: runtime at <repo>/server/python/...
+  const dev = join(process.cwd(), "server", "python", ...rel);
   if (existsSync(dev)) return dev;
   return null;
 }
@@ -44,8 +50,8 @@ function bundledPythonBin(): string | null {
 export function resolvePythonBin(): string {
   const bundled = bundledPythonBin();
   if (bundled) return bundled;
-  // Last-resort: hope system python3 has build123d
-  return "python3";
+  // Last-resort: hope system Python has build123d
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 function cleanBuild123dError(rawStderr: string): string {
@@ -360,7 +366,7 @@ export async function checkBuild123d(): Promise<{
         error: cleaned ||
           (bundledPythonBin()
             ? ""
-            : "Python runtime not bundled. Run scripts/setup-python.sh before packaging."),
+            : "Python runtime not bundled. Run pnpm setup:python before packaging."),
       });
     });
     proc.on("error", (err) => {

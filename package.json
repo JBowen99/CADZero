@@ -12,7 +12,7 @@
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
-    "setup:python": "bash scripts/setup-python.sh",
+    "setup:python": "node scripts/setup-python.mjs",
     "dev:server": "node --env-file-if-exists=server/.env --import tsx --watch server/index.ts",
     "start:server": "node --env-file-if-exists=server/.env --import tsx server/index.ts",
     "dev:all": "concurrently -k -n server,web -c green,cyan \"pnpm dev:server\" \"pnpm dev\"",
@@ -21,9 +21,10 @@
     "dev:desktop": "concurrently -k -n web,main,app \"react-router dev\" \"vite build --config electron/vite.config.ts --watch\" \"wait-on tcp:5173 dist-electron/main.cjs && electron .\"",
     "rebuild:native": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps || echo 'native rebuild skipped (electron-builder not available)'",
-    "check:python": "test -x server/python/bin/python3 || (echo 'ERROR: server/python/bin/python3 not found. Run pnpm setup:python first.' && exit 1)",
+    "check:python": "node scripts/check-python.mjs",
     "package": "pnpm check:python && pnpm build:desktop && electron-builder",
-    "package:linux": "pnpm check:python && pnpm build:desktop && electron-builder --linux"
+    "package:linux": "pnpm check:python && pnpm build:desktop && electron-builder --linux",
+    "package:win": "pnpm check:python && pnpm build:desktop && electron-builder --win"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.28",
@@ -105,6 +106,19 @@
       ],
       "category": "Graphics",
       "maintainer": "CADZero"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

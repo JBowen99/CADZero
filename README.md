@@ -10,8 +10,8 @@ CLI) and **Build123D** (Python over the OpenCascade B-rep kernel, enabling STEP
 export). The frontend never cares which engine is running; every backend exposes
 the same interface.
 
-> **Platform status:** CADZero currently targets **Linux**. Windows and macOS
-> support will come later.
+> **Platform status:** Packaging targets **Linux** (AppImage) and **Windows**
+> (NSIS `.exe`). Build each installer on that OS. macOS support will come later.
 
 ---
 
@@ -58,26 +58,26 @@ User ──▶ AI Conversation ──▶ Modeling Backend (OpenSCAD)
 
 ---
 
-## Prerequisites (Linux)
+## Prerequisites
 
 1. **Node.js 22+** — <https://nodejs.org> (or via your distro / nvm)
 2. **pnpm** — `corepack enable && corepack prepare pnpm@latest --activate`
-3. **OpenSCAD** — required for OpenSCAD parts in Build mode:
+3. **OpenSCAD** — required for OpenSCAD parts in Build mode (not bundled):
    - Fedora / RHEL: `sudo dnf install openscad`
    - Debian / Ubuntu: `sudo apt install openscad`
+   - Windows: install from <https://openscad.org/downloads.html>
    - (If `openscad` isn't on `PATH`, set `OPENSCAD_PATH` to its location.)
 4. **Build123D runtime (optional, for Build123D parts + STEP export)** — a
    self-contained CPython 3.12 with `build123d` + OpenCascade (OCP) is fetched
-   on demand:
+   on demand for the **host OS**:
    ```bash
-   pnpm setup:python      # downloads CPython 3.12 + pip installs build123d (~200MB)
+   pnpm setup:python      # downloads CPython 3.12 + pip installs build123d
    ```
    This is **not** required if you only use OpenSCAD. To point the backend at a
-   different Python instead, set `PYTHON_PATH` in `server/.env`.
+   different Python instead, set `PYTHON_PATH` in `server/.env`. **Required**
+   before `pnpm package:linux` / `pnpm package:win` (run setup on the same OS
+   you are packaging for).
 5. **OpenRouter API key** — create one at <https://openrouter.ai/keys>
-6. *(Optional, only for `.deb` packaging)* `libxcrypt-compat`:
-   - Fedora: `sudo dnf install libxcrypt-compat`
-   - Debian: `sudo apt install libcrypt1`
 
 ---
 
@@ -146,12 +146,17 @@ Production build of the renderer + Electron main:
 pnpm build:desktop
 ```
 
-Build and package a Linux distributable (AppImage + `.deb` written to
-`release/`):
+Fetch the Build123D Python runtime **on the machine you will package on**, then
+build the installer for that OS:
 
 ```bash
-pnpm package:linux
+pnpm setup:python     # host-specific CPython + build123d into server/python/
+pnpm package:linux    # -> release/*.AppImage  (run on Linux)
+pnpm package:win      # -> release/*-setup.exe (run on Windows; NSIS x64)
 ```
+
+Do not reuse a Linux `server/python/` tree inside a Windows installer (or vice
+versa). OpenSCAD remains an external host dependency for OpenSCAD parts.
 
 ---
 
@@ -159,7 +164,8 @@ pnpm package:linux
 
 ```bash
 pnpm install          # install dependencies
-pnpm setup:python     # fetch the Build123D Python runtime (optional, ~200MB)
+pnpm setup:python     # fetch the Build123D Python runtime for this OS
+pnpm check:python     # verify the runtime exists (pre-package gate)
 pnpm dev              # web dev server (http://localhost:5173)
 pnpm dev:server       # AI backend (http://localhost:8787)
 pnpm dev:all          # backend + web dev server together
@@ -167,7 +173,8 @@ pnpm dev:desktop      # Electron app + HMR
 pnpm run typecheck    # react-router typegen && tsc  (run before committing)
 pnpm run build        # production build (SPA)
 pnpm build:desktop    # build renderer + Electron main
-pnpm package:linux    # build + package -> release/*.AppImage / *.deb
+pnpm package:linux    # build + package -> release/*.AppImage
+pnpm package:win      # build + package -> release/*-setup.exe (Windows host)
 ```
 
 ---
