@@ -15,6 +15,7 @@ import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { RubiksGizmo } from "~/components/RubiksGizmo";
+import { SelectionIndicator } from "~/components/SelectionIndicator";
 import {
   Tooltip,
   TooltipContent,
@@ -1108,17 +1109,10 @@ export function Viewport() {
                 : "Selection requires a Build123D part (B-rep)"}
             </TooltipContent>
           </Tooltip>
-          {selection.length > 0 && (
-            <button
-              type="button"
-              onClick={clearSelection}
-              className="ml-1 mr-0.5 rounded px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-              aria-label="Clear selection"
-            >
-              {selection.length}
-            </button>
-          )}
         </div>
+      </div>
+      <div className="absolute bottom-3 right-3">
+        <SelectionIndicator align="end" side="top" variant="overlay" />
       </div>
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (

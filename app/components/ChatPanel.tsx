@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import { ChatMessage } from "./ChatMessage";
+import { SelectionIndicator } from "./SelectionIndicator";
 import { describeChatError, isChatBusy, useChatActions, useChatState, useChatStatus } from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
@@ -87,8 +88,6 @@ export function ChatPanel() {
   const setModel = useSettingsStore((s) => s.setModel);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
-  const selection = useSelectionStore((s) => s.selection);
-  const removeSelection = useSelectionStore((s) => s.remove);
   const clearSelection = useSelectionStore((s) => s.clear);
   const chatLoading = useDocumentsStore(
     (s) =>
@@ -311,29 +310,9 @@ export function ChatPanel() {
             Drop images to attach
           </div>
         )}
-        {selection.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {selection.map((s) => (
-              <div
-                key={`${s.kind}-${s.id}`}
-                className="group flex max-w-full items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px]"
-              >
-                <span className="font-medium text-primary">{s.label}</span>
-                <span className="truncate text-muted-foreground">
-                  {s.summary}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => removeSelection(s.kind, s.id)}
-                  aria-label={`Remove ${s.label}`}
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="mb-2">
+          <SelectionIndicator align="start" side="top" />
+        </div>
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {images.map((img, i) => (

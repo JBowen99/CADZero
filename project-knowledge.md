@@ -88,10 +88,16 @@ context. See `AI CAD MVP Project Specification.md` for the full vision.
 > click toggles it into multi-select (amber). Vertex highlight is a
 > **screen-space DOM dot** (drei `<Html>`, constant pixel size on zoom —
 > CAD-style, not a 3D sphere); edge = yellow `<Line>`; face = yellow overlay.
-> `useSelectionStore` holds the array (multi, no cap); the chat transport
-> injects `selection` into every request body (same pattern as
-> cadCode/mode) and `buildInstructions` appends a "User has selected:" block.
-> Selection is transient (clears on send / tab-switch / mesh change). Disabled
+> `useSelectionStore` holds the array (multi, no cap). A shared
+> `SelectionIndicator` component (`app/components/SelectionIndicator.tsx`)
+> renders a pill showing the count + a popover with a scrollable list
+> (per-row remove + "Clear all"): mounted at `absolute bottom-3 right-3` in
+> the viewport (`variant="overlay"`, translucent backdrop) and above the chat
+> textarea as a solid pill. The tiny click-to-clear count badge was removed
+> from the viewport's mode toolbar. The chat transport injects `selection`
+> into every request body (same pattern as cadCode/mode) and `buildInstructions`
+> appends a "User has selected:" block. Selection is transient (clears on send /
+> tab-switch / mesh change). Disabled
 > for OpenSCAD parts (no B-rep) and in wireframe view (no mesh to raycast).
 
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
@@ -169,9 +175,10 @@ app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx          # app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), and a READ-ONLY language badge (locked at creation — the old runtime switcher is gone)
-│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio; SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay
-│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SELECTION chips + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send
+│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio (count badge removed; replaced by SelectionIndicator at bottom-right); SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay
+│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
+│   ├── SelectionIndicator.tsx # Shared popover-based selection summary: pill icon + count → popover with scrollable list (per-row kind icon/label/summary + remove X, "Clear all" footer). Mounted in viewport (bottom-right, variant="overlay") and chat composer. Reads useSelectionStore directly.
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage tool-call cards)
 │   ├── CodeEditor.tsx       # CodeMirror 6 wrapper (forwardRef exposing undo/redo; cpp() grammar for OpenSCAD, python() for build123d; Mod-Enter → onRender; dark/light via next-themes). Used only by CodeView
 │   ├── CodeView.tsx         # right-panel Code tab: editable CodeMirror; header has Undo/Redo + Render (▶, ⌘/Ctrl+Enter); inline error banner on render failure; reads shared isRendering
@@ -204,7 +211,7 @@ app/
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
 │   ├── useSettingsStore.ts  # model + defaultBackend + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
 │   ├── useCapabilitiesStore.ts # openscad/build123d {ok,version?,error?}; loaded once at boot (GET /api/capabilities); drives NewPartDialog build123d gating
-│   ├── useSelectionStore.ts # selection: TopologySelection[] (multi, no cap); toggle/remove/clear; read by the chat transport + ChatPanel chips; cleared on send/tab-switch/mesh-change
+│   ├── useSelectionStore.ts # selection: TopologySelection[] (multi, no cap); toggle/remove/clear; read by SelectionIndicator + the chat transport; cleared on send/tab-switch/mesh-change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace. **init() retries with backoff** (500ms→1s→2s→4s, ~8s cap) so it survives the dev:all cold-start race where Vite is up before the API server; initialized only flips after success OR retry exhaustion (so the WorkspaceSetup dialog stays hidden during retries and auto-dismisses once :8787 answers)
 │   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId + newPartDialogOpen; denormalized activeId/activeMeta/previewingRevId; each OpenDoc carries cadCode + meshCode + topology + language + codeDirty; newTab(language) (language chosen in NewPartDialog, immutable for the doc's life); actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode (fetches topology for build123d)/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview (fetches topology)/restore (fetches topology). openDocs FIFO cap 8
 │   └── useConnectionStore.ts
