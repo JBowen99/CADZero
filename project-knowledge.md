@@ -97,14 +97,18 @@ full vision.
 > `useSelectionStore` holds the array (multi, no cap). A shared
 > `SelectionIndicator` component (`app/components/SelectionIndicator.tsx`)
 > renders a pill showing the count + a popover with a scrollable list
-> (per-row remove + "Clear all"): mounted at `absolute bottom-3 right-3` in
-> the viewport (`variant="overlay"`, translucent backdrop) and above the chat
-> textarea as a solid pill. The tiny click-to-clear count badge was removed
-> from the viewport's mode toolbar. The chat transport injects `selection`
-> into every request body (same pattern as cadCode/mode) and `buildInstructions`
-> appends a "User has selected:" block. Selection is transient (clears on send /
-> tab-switch / mesh change). Disabled
-> for OpenSCAD parts (no B-rep) and in wireframe view (no mesh to raycast).
+> (per-row remove + "Clear all"): mounted **next to the select-mode toolbar**
+> at bottom-left in the viewport (`variant="overlay"`, translucent backdrop)
+> and above the chat textarea as a solid pill. The chat transport injects
+> `selection` into every request body (same pattern as cadCode/mode) and
+> `buildInstructions` appends a "User has selected:" block. **Live selection is
+> still transient** (clears on send / tab-switch / mesh change), but
+> `sendMessage` also snapshots it onto `UIMessage.metadata.selection`
+> (`ChatMessageMetadata`) so history can show a collapsible
+> `MessageSelectionContext` chip on that user turn. Transport falls back to the
+> last user message's metadata selection when the live store is empty (e.g.
+> regenerate). Disabled for OpenSCAD parts (no B-rep) and in wireframe view
+> (no mesh to raycast).
 
 > Note on the spec: the spec said *Python backend + WebSocket*. The AI layer was
 > deliberately moved to **TypeScript + HTTP streaming** (Vercel AI SDK). The CAD
@@ -183,10 +187,12 @@ app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx          # app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), and a READ-ONLY language badge (locked at creation — the old runtime switcher is gone)
-│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio (count badge removed; replaced by SelectionIndicator at bottom-right); SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay. **No-tabs empty state:** when `openDocs.length === 0`, renders a `NoTabsHint` overlay with "Open part" (PartsBrowser) and "New part" (NewPartDialog) buttons instead of the usual `EmptyHint`.
-│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send. **No-active-doc state:** when `openDocs.length === 0`, renders a `NoDocChat` call-to-action ("Create a new part to begin" + New part button) instead of messages/example prompts; the textarea, send button, and attach button are disabled with placeholder "Create a new part to start chatting".
-│   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
-│   ├── SelectionIndicator.tsx # Shared popover-based selection summary: pill icon + count → popover with scrollable list (per-row kind icon/label/summary + remove X, "Clear all" footer). Mounted in viewport (bottom-right, variant="overlay") and chat composer. Reads useSelectionStore directly.
+│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry (normals + crease edges); imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge priority = "Processing mesh…" (worker) > "Rendering…" (isRendering|isBuilding) > amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio; SelectionIndicator sits beside it (not bottom-right). SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay. Geometry/edge state commits via startTransition. **No-tabs empty state:** when `openDocs.length === 0`, renders a `NoTabsHint` overlay with "Open part" (PartsBrowser) and "New part" (NewPartDialog) buttons instead of the usual `EmptyHint`.
+│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send. "Assistant is thinking…" via AssistantStatusMessage only while submitted/streaming with no visible assistant parts yet. **No-active-doc state:** when `openDocs.length === 0`, renders a `NoDocChat` call-to-action ("Create a new part to begin" + New part button) instead of messages/example prompts; the textarea, send button, and attach button are disabled with placeholder "Create a new part to start chatting".
+│   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts; while tool input-streaming shows AssistantStatusMessage ("Generating code…") and DEFERS mounting CodeBlock (rAF + startTransition) so status paints first; restore-event messages render as a centered rounded muted pill with RotateCcw (message.kind === "restore"); user msgs with metadata.selection show MessageSelectionContext
+│   ├── AssistantStatusMessage.tsx # in-progress assistant status bubble (muted bg + `.assistant-status-shine` yellow sweep; respects prefers-reduced-motion)
+│   ├── MessageSelectionContext.tsx # collapsible "N selected" chip on historical user messages (reads TopologySelection[] from message metadata; shares SELECTION_KIND_ICON with SelectionIndicator)
+│   ├── SelectionIndicator.tsx # Shared popover-based selection summary: pill icon + count → popover with scrollable list (per-row kind icon/label/summary + remove X, "Clear all" footer). Mounted in viewport (bottom-left beside select toolbar, variant="overlay") and chat composer. Exports SELECTION_KIND_ICON. Reads useSelectionStore directly.
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage tool-call cards)
 │   ├── CodeEditor.tsx       # CodeMirror 6 wrapper (forwardRef exposing undo/redo; cpp() grammar for OpenSCAD, python() for build123d; Mod-Enter → onRender; dark/light via next-themes). Used only by CodeView
 │   ├── CodeView.tsx         # right-panel Code tab: editable CodeMirror; header has Undo/Redo + Render (▶, ⌘/Ctrl+Enter); inline error banner on render failure; reads shared isRendering
@@ -204,15 +210,15 @@ app/
 │   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
-│   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language/partId/selection
+│   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages + LiveMessagesRef contexts. **Display vs live messages:** State context exposes displayMessages (strips growing tool `code` while `input-streaming` so context stays referentially stable); `useChatLiveMessagesRef()` always has full streaming code for persist/tab-sync/model-sync. sendMessage wraps withSelectionMetadata; transport injects mode/model/cadCode/language/partId/selection (live store, else last user metadata)
 │   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / restoreRevisionUrl / messagesUrl / providerUrl / providerKeyUrl(name) (derived from VITE_AI_API_URL or app://bundle/api/chat)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
-│   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
-│   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
-│   ├── useModelSync.ts      # watches the LAST chat message; on finished update_model fetches binary /api/mesh/:id -> setModel + patchActiveDoc. **Also keeps meta.headRevId fresh:** when building on an EXISTING part (`active.partId === output.partId`) it patches `meta` with `headRevId: output.revId` + bumps `updatedAt` — `adoptBuiltPart` returns early in that case so without this the History "current" badge lands one revision behind (stale headRevId). `updatedAt` change also makes HistoryPanel's list refetch.
-│   ├── useTabChatSync.ts    # multi-part: on activeClientId change, snapshots useChat.messages -> outgoing doc.chat, restores incoming (lazy-loads from disk if !chatLoaded)
-│   ├── useRestoreWithNote.ts # wraps store `restoreRevision` + injects a restore note into chat (so the AI has it in context + user sees it). Fetches the revisions list to get the version# + label/message, appends a UIMessage { role:"user", kind:"restore", text:"Restored to vN (\"label\")…" }. Active doc → setMessages; tab-switch race → snapshotChat into that doc. Used by BOTH restore call sites (HistoryPanel + Viewport).
-│   ├── useChatPersist.ts    # debounced (~600ms) disk persist of active doc's chat; flush-on-switch + beforeunload; PUT /api/parts/:id/messages
+│   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere + crease edges (EdgesGeometry-equivalent, 20° threshold, position-hash for non-indexed soups); all transferable Float32Array
+│   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise; **transfers positions** — callers must pass a copy if they still need the store buffer
+│   ├── useModelSync.ts      # watches display messages for tool state; prefers liveMessagesRef for full tool code on resolve. `isBuilding` only during `input-available` (server tessellation), NOT during `input-streaming` (code gen). On success: keep isBuilding through mesh/topology fetch, then rAF + startTransition before setModel/patchActiveDoc so chat UI paints first. **Also keeps meta.headRevId fresh** on same-part builds (see History "current" badge note below).
+│   ├── useTabChatSync.ts    # multi-part: on activeClientId change, snapshots liveMessagesRef -> outgoing doc.chat, restores incoming (lazy-loads from disk if !chatLoaded)
+│   ├── useRestoreWithNote.ts # wraps store `restoreRevision` + injects a restore note into chat (so the AI has it in context + user sees it). Fetches the revisions list to get the version# + label/message, appends a UIMessage { role:"user", kind:"restore", text:"Restored to vN (\"label\")…" }. Active doc → setMessages from liveMessagesRef; tab-switch race → snapshotChat into that doc. Used by BOTH restore call sites (HistoryPanel + Viewport).
+│   ├── useChatPersist.ts    # debounced (~600ms) disk persist of active doc's chat from liveMessagesRef; **skips while chat busy**, flushes once when stream finishes; serialize via requestIdleCallback (timeout 1500) so JSON.stringify doesn't hitch the UI; flush-on-switch + beforeunload (keepalive sync path, no idle defer); PUT /api/parts/:id/messages
 │   └── chat-persist.ts      # serialize/deserialize UIMessage <-> StoredMessage (parts_json = full message JSON; extracts producedRevId from tool parts)
 ├── services/
 │   └── websocket.ts         # DummyWebSocketClient — swap for real WS later (CAD progress)
@@ -227,12 +233,12 @@ app/
 │   ├── useDocumentsStore.ts # multi-part TABS: openDocs[] + activeClientId + newPartDialogOpen; denormalized activeId/activeMeta/previewingRevId; each OpenDoc carries cadCode + meshCode + topology + language + codeDirty; newTab(language) (language chosen in NewPartDialog, immutable for the doc's life); actions: openPart/newTab/closeTab/setActive/patchActiveDoc/editActiveCode/renderActiveCode (fetches topology for build123d)/flushActiveCode/guardCodeDirty/discardActiveCodeEdits/preview (fetches topology)/restore (fetches topology). openDocs FIFO cap 8
 │   └── useConnectionStore.ts
 ├── types/
-│   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, Topology (FaceGroup/EdgeGroup/VertexNode), TopologySelection (kind/id/label/summary), ModelingBackend, etc.
+│   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, Topology (FaceGroup/EdgeGroup/VertexNode), TopologySelection (kind/id/label/summary), ChatMessageMetadata (selection?: TopologySelection[] on UIMessage.metadata), ModelingBackend, etc.
 ├── routes/
 │   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync + useTabChatSync; boots (settings+workspace+providers), reopens ALL last-open tabs (first active, rest background), syncs lastOpenDocIds from openDocs; renders the non-dismissible <ProviderSetup/> once workspace is configured but no provider key is set
 │   └── +types/*             # AUTO-GENERATED by react-router typegen (gitignored)
 ├── vite-env.d.ts            # augments ImportMetaEnv with VITE_AI_API_URL
-├── app.css                  # Tailwind import + shadcn design tokens
+├── app.css                  # Tailwind import + shadcn design tokens + `.assistant-status-shine` keyframes (prefers-reduced-motion safe)
 └── root.tsx                 # ThemeProvider + Toaster + Layout
 ```
 
@@ -291,15 +297,27 @@ exact same SPA as the web app — Electron just loads it.
   ships prompts. All CAD work happens backend-side.
 - **AI chat is real and streaming.** A single `useChat({ throttle: 50 })`
   instance lives in `ChatProvider` (`app/lib/ai-chat.tsx`), wrapped around the
-  whole workspace in `home.tsx`. It is exposed via FOUR narrow contexts —
-  `useChatActions` (stable `sendMessage`/`stop`/`regenerate`/`setMessages`),
-  `useChatStatus` (status transitions only), `useChatState` (`messages`+`error`,
-  per-throttled-token), `useChatHasMessages` (boolean). **Do NOT put the whole
-  `chat` object in one context** — it re-renders the ENTIRE app tree on every
-  token (that was the whole-app freeze bug). `ChatMessage` is `React.memo`'d so
-  prior messages skip re-render. Message history (context) is held client-side by
-  `useChat` and re-sent each turn; it is ALSO persisted per-part to the `.cadz`
-  (Phase 4) and lazy-loaded on tab activate (see `chat-persist.ts`).
+  whole workspace in `home.tsx`. It is exposed via FIVE narrow contexts —
+  `useChatActions` (stable `sendMessage`/`stop`/`regenerate`/`setMessages`;
+  `sendMessage` also snapshots live selection onto `metadata.selection`),
+  `useChatStatus` (status transitions only), `useChatState` (**display**
+  `messages`+`error`), `useChatHasMessages` (boolean), and
+  `useChatLiveMessagesRef` (always-current messages including streaming tool
+  code). **Do NOT put the whole `chat` object in one context** — it re-renders
+  the ENTIRE app tree on every token (that was the whole-app freeze bug).
+  `ChatMessage` is `React.memo`'d so prior messages skip re-render.
+- **Display messages vs live messages (streaming perf).** While
+  `tool-update_model` is in `input-streaming`, the growing `input.code` string
+  would otherwise invalidate `useChatState` on every throttle tick and force
+  chat/viewport consumers to re-render huge code blocks mid-stream.
+  `displayMessagesSignature` + `stripStreamingToolCode` keep the State context
+  stable during code streaming (signature treats code as a constant `:cs`
+  stub); UI shows `AssistantStatusMessage` ("Generating code…") instead.
+  Persist / tab-sync / restore / model-sync that need the full code MUST read
+  `useChatLiveMessagesRef().current`, never display messages alone. Message
+  history is held client-side by `useChat` and re-sent each turn; it is ALSO
+  persisted per-part to the `.cadz` (Phase 4) and lazy-loaded on tab activate
+  (see `chat-persist.ts`).
 - **CAD generation is real (OpenSCAD).** In Build mode the model calls the
   `update_model` tool (`server/app.ts`) with `{ code, language, message }`.
   The server's `execute` writes the code to a temp `.scad`, runs
@@ -438,9 +456,10 @@ exact same SPA as the web app — Electron just loads it.
   `ok:false` on compile/triangle errors so the client doesn't branch on status),
   decodes the mesh into the doc, and **keeps `codeDirty`** — rendering does not
   save. `useModelStore.isRendering` (set in a try/finally in `renderActiveCode`)
-  drives the Code-tab Render button spinner AND the Viewport's top-left badge:
-  while rendering it shows a non-clickable **"Rendering…"** spinner, otherwise
-  it falls back to the amber **"Out of sync"** badge. Render is triggered by the
+  drives the Code-tab Render button spinner AND (with `isBuilding`) the
+  Viewport's top-left badge. Badge priority: **"Processing mesh…"** (worker) >
+  **"Rendering…"** (`isRendering || isBuilding`) > amber **"Out of sync"**.
+  Render is triggered by the
   ▶ button or **Mod-Enter** (a CodeMirror keymap, scoped to the editor — no
   conflict with the chat textarea's Mod-Enter). Render failures surface as a
   dismissible inline banner in the Code tab (full stderr, line numbers).
@@ -645,12 +664,15 @@ successful render.
     read `message.content`. (Future: tool/data parts for meshes.)
 17. **`useChat` is one instance shared via React context — but SPLIT, not whole.**
     `ChatProvider` (`app/lib/ai-chat.tsx`) runs `useChat({ throttle: 50 })` once
-    and exposes it through four narrow contexts (`useChatActions`/`useChatStatus`/
-    `useChatState`/`useChatHasMessages`). Never call `useChat()` per-component
-    (you get separate chat states), and never stuff the whole `chat` object into
-    one context — it's a fresh object every render and re-renders the entire app
-    on every token (full freeze). The action methods are stable (backed by a
-    `useRef` chat instance inside the SDK), so the actions context never changes.
+    and exposes it through five narrow contexts (`useChatActions`/`useChatStatus`/
+    `useChatState`/`useChatHasMessages`/`useChatLiveMessagesRef`). Never call
+    `useChat()` per-component (you get separate chat states), and never stuff
+    the whole `chat` object into one context — it's a fresh object every render
+    and re-renders the entire app on every token (full freeze). The action
+    methods are stable (backed by a `useRef` chat instance inside the SDK), so
+    the actions context never changes. **`useChatState().messages` is the
+    display view** (streaming tool code stripped) — hooks that persist or need
+    full tool `input.code` must use `useChatLiveMessagesRef()`.
 18. **Server files ARE typechecked by the root `pnpm typecheck`** (tsconfig
     `include: ["**/*"]`). They are NOT bundled into the client (the client never
     imports `server/`). Obey `verbatimModuleSyntax` → use `import type`.
@@ -932,7 +954,8 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 `app://` loader both serve it unchanged — no special config.
 - **Don't `import three` inside a worker.** Three's main entry pulls in
   DOM-touching classes (`Texture`, etc.). We hand-rolled the normals + Ritter
-  bounding-sphere loops instead (pure math, ~40 LOC). Worth it.
+  bounding-sphere + crease-edge loops instead (pure math). Worth it — including
+  edges: main-thread `EdgesGeometry` on large soups was a noticeable hitch.
 - **tsconfig has only `DOM`/`ES2022` libs — no `WebWorker`.** So `self` inside
   the worker is typed as `Window`, and `self.postMessage(msg, [transfer])`
   doesn't match (Window's signature requires `targetOrigin`). Work around it
@@ -940,8 +963,11 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
   `const ctx = self as unknown as { onmessage: …; postMessage(msg, transfer: Transferable[]): void }`.
 - **Always transfer `Float32Array.buffer`, never the typed array.** And once
   transferred, the source is neutered — only build throwaway buffers for the
-  transfer. `mesh-worker-client.ts` correlates requests by an incrementing id
-  so a single shared worker can serve concurrent `buildMesh()` calls safely.
+  transfer (**copy** `mesh.positions` before `buildMesh`; never transfer the
+  Zustand-owned buffer). `mesh-worker-client.ts` correlates requests by an
+  incrementing id so a single shared worker can serve concurrent `buildMesh()`
+  calls safely. Transfer list on the reply includes `positions`, `normals`,
+  and `edges`.
 
 ---
 
@@ -989,27 +1015,40 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
   `Bounds.moveTo(center + FRONT_RIGHT_TOP_DIR·distance).lookAt(center)`, where
   `FRONT_RIGHT_TOP_DIR = (140,110,160).normalize()` matches the default camera).
   The hotkey is guarded to skip when typing in chat or when modifiers are held.
-- **View modes:** Shaded (surface, no edges) / Solid (surface + creased edges via
-  `EdgesGeometry` at 20° threshold, surface uses `polygonOffset` to avoid
-  z-fighting) / Wireframe (edges only, no surface — NOT every triangle edge, just
-  structural creases). `EdgesGeometry` is built lazily (only in Solid/Wireframe)
-  and disposed on swap/unmount.
+- **View modes:** Shaded (surface, no edges) / Solid (surface + creased edges at
+  20° threshold, surface uses `polygonOffset` to avoid z-fighting) / Wireframe
+  (edges only, no surface — NOT every triangle edge, just structural creases).
+  Crease edges are **precomputed off-thread** in `mesh-worker.ts`
+  (`computeEdges`, EdgesGeometry-equivalent with position hashing for
+  non-indexed triangle soups) and attached as a plain `BufferGeometry` on the
+  main thread — do **not** rebuild `THREE.EdgesGeometry` on the main thread
+  (that was a hitch on dense meshes). Edge buffers dispose on swap/unmount.
 - **Viewport toolbar** (top-right): view-mode segmented group (mesh-gated;
   Shaded=`Disc`, Solid=`Box`, Wireframe=`Grid3x3`) · grid + view-cube visibility
   toggles (always visible; view-cube toggle uses the `Compass` icon) · Frame
   button (mesh-gated). **All six buttons use Radix tooltips** (`side="bottom"`,
   in the global `TooltipProvider`) instead of native `title` attrs.
 - **Geometry is built off the main thread.** `Viewport.tsx`'s `useEffect`
-  converts `mesh.positions` to a `Float32Array`, transfers it to the singleton
-  Web Worker (`mesh-worker.ts`) which computes per-vertex normals (same
-  algorithm as three's non-indexed `computeVertexNormals`) + a Ritter bounding
-  sphere, and returns both as transferable `Float32Array`s. The main thread
-  only attaches them to a `BufferGeometry`. While a new mesh prepares, the
-  previous mesh stays visible (no flicker) and a "Processing mesh…" badge
-  shows. Old geometries are `.dispose()`d via a ref so GPU memory doesn't leak.
-  Lifting this out of the R3F tree (the worker call lives in the outer
-  component, not inside `<Canvas>`) is what keeps the textarea/camera
-  responsive during large renders.
+  copies `mesh.positions` into a **dedicated** `Float32Array` (the store-owned
+  buffer must stay intact — `buildMesh` **transfers** the copy), posts it to
+  the singleton Web Worker (`mesh-worker.ts`) which computes per-vertex normals
+  (same algorithm as three's non-indexed `computeVertexNormals`) + a Ritter
+  bounding sphere + crease edge line segments, and returns all three as
+  transferable `Float32Array`s. The main thread only attaches them to
+  `BufferGeometry`s, and commits geometry/edge/`processing` state via
+  `startTransition` so chat status can paint first. While a new mesh prepares,
+  the previous mesh stays visible (no flicker) and a "Processing mesh…" badge
+  shows (higher priority than "Rendering…"). Old geometries are `.dispose()`d
+  via a ref so GPU memory doesn't leak. Lifting this out of the R3F tree (the
+  worker call lives in the outer component, not inside `<Canvas>`) is what
+  keeps the textarea/camera responsive during large renders.
+- **Defer heavy chat/viewport commits around streaming.** Related main-thread
+  hygiene: `useModelSync` waits one `requestAnimationFrame` then
+  `startTransition`s `setModel` after a build succeeds; `useChatPersist`
+  defers `serializeConversation`/`JSON.stringify` with `requestIdleCallback`
+  and does not schedule persists while `isChatBusy`; `ChatMessage`'s BuildCard
+  delays mounting the full `<CodeBlock>` until after an rAF + `startTransition`
+  once code is no longer streaming.
 - Empty state (no mesh) shows a dashed hint. (The old "Generating model…"
   overlay was removed once chat stopped driving the viewport; the viewport no
   longer reacts to chat status.)
@@ -1024,7 +1063,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | `update_model` tool → OpenSCAD → mesh → viewport | **LIVE** — requires `openscad` binary installed |
 | Plan / Chat / Build modes      | **LIVE** — user-selectable via footer Select; drive system prompt + tool use |
 | Model picker                   | **LIVE** — `GET /api/models` (config ∩ live OpenRouter, incl. `supportsVision`) → footer Select with `ScanEye` vision icon, stored in `useSettingsStore` |
-| Off-main-thread geometry       | **LIVE** — Web Worker builds normals + bounding sphere (no UI hitch on large meshes) |
+| Off-main-thread geometry       | **LIVE** — Web Worker builds normals + bounding sphere + crease edges; display-message stripping + idle persist + startTransition keep chat responsive while code streams / meshes apply |
 | Image attachments (vision)     | **LIVE** — paste / drag-drop / paperclip; gated on per-model `supportsVision`; ≤4 imgs, ≤5 MB, downscaled; **non-vision model strips images on send + red warning** |
 | OpenSCAD auto-retry            | **LIVE** — `stopWhen: stepCountIs(4)` + `MAX_TRIANGLES=500_000` cap; model self-corrects from stderr |
 | Chat ↔ Code panel swap         | **LIVE** — `[Chat|Code|History]` tabs in `SidePanel` |
@@ -1042,7 +1081,7 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Storage: part save/open + build auto-revision (`/api/parts/*`, `/api/parts/:id/meshes/:blobId`) | **LIVE** — builds auto-create a revision (and an Untitled part on first build); reload reopens the last part (code+mesh); New/Open/Rename/Delete in Toolbar + PartsBrowser |
 | Storage: PDM revision browser + restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
-| Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json`, linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist + flush-on-switch + beforeunload |
+| Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json` (incl. `metadata.selection`), linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist from live messages (skipped while streaming, flush on idle/finish) + flush-on-switch + beforeunload keepalive |
 | Provider API-key flow (`/api/provider`, safeStorage) | **LIVE** — first-run non-dismissible `ProviderSetup` dialog after workspace pick; `SettingsDialog` (gear icon, before theme toggle) to view/change the key; `SafeStorageCredentialStore` encrypts via OS keychain (plaintext fallback on headless Linux); `GET /api/provider` returns only `{configured: boolean}` (never the key); `/api/chat` returns 401 with a clear hint when no key is set |
 | Self-contained desktop app (in-process server + bundled Python) | **LIVE** — Hono runs inside Electron main on 127.0.0.1:8787 (no separate process); CPython 3.12 + build123d + OCP bundled as `extraResources/python-runtime/`; single-instance lock; `pnpm package:linux` → `release/*.AppImage` (~465 MB) |
 | Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |
@@ -1135,4 +1174,7 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
 6. **Optional perf headroom:** R3F runs `frameloop="always"` with damping +
    1024² shadows + `preserveDrawingBuffer`; switching to `frameloop="demand"`
    (invalidate on change) and dropping `preserveDrawingBuffer` would reclaim
-   frame budget if the viewport ever feels heavy on low-end GPUs.
+   frame budget if the viewport ever feels heavy on low-end GPUs. Streaming /
+   mesh-apply main-thread work is already mitigated (display-message strip,
+   worker edges, idle persist, `startTransition`) — see "Display messages vs
+   live messages" and the mesh-worker notes above.

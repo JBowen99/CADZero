@@ -141,4 +141,42 @@
   .no-drag {
     -webkit-app-region: no-drag;
   }
+
+  /* Cursor-style yellow shine for in-progress assistant status text */
+  .assistant-status-shine {
+    --status-shine-base: var(--foreground);
+    --status-shine-highlight: color-mix(in oklch, var(--primary) 85%, white);
+    background-image: linear-gradient(
+      90deg,
+      var(--status-shine-base) 0%,
+      var(--status-shine-base) 40%,
+      var(--status-shine-highlight) 50%,
+      var(--status-shine-base) 60%,
+      var(--status-shine-base) 100%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: assistant-status-shine 1.8s linear infinite;
+  }
+}
+
+@keyframes assistant-status-shine {
+  0% {
+    background-position: 100% center;
+  }
+  100% {
+    background-position: -100% center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-status-shine {
+    animation: none;
+    background-image: none;
+    color: var(--foreground);
+    -webkit-text-fill-color: var(--foreground);
+  }
 }

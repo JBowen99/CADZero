@@ -1,6 +1,7 @@
 export interface MeshWorkerOutput {
   positions: Float32Array;
   normals: Float32Array;
+  edges: Float32Array;
   center: [number, number, number];
   radius: number;
 }
@@ -43,6 +44,10 @@ function getWorker(): Worker {
   return worker;
 }
 
+/**
+ * Off-thread normals, bounds, and crease edges.
+ * Transfers `positions` — pass a copy if the caller still needs the buffer.
+ */
 export function buildMesh(positions: Float32Array): Promise<MeshWorkerOutput> {
   return new Promise((resolve, reject) => {
     const id = nextId++;

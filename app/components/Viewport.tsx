@@ -1,4 +1,11 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  startTransition,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import {
   Bounds,
@@ -628,6 +635,7 @@ function SelectionPicker({
 
 function Scene({
   geometry,
+  edgePositions,
   fitRef,
   frameRef,
   gridColors,
@@ -645,6 +653,7 @@ function Scene({
   onToggleSelection,
 }: {
   geometry: THREE.BufferGeometry | null;
+  edgePositions: Float32Array | null;
   fitRef: FitRef;
   frameRef: FitRef;
   gridColors: GridColors | null;
@@ -662,16 +671,17 @@ function Scene({
   onToggleSelection: (sel: TopologySelection) => void;
 }) {
   const meshRef = useRef<THREE.Mesh | null>(null);
-  const edgesRef = useRef<THREE.EdgesGeometry | null>(null);
+  const edgesRef = useRef<THREE.BufferGeometry | null>(null);
   const edges = useMemo(() => {
     edgesRef.current?.dispose();
     edgesRef.current = null;
     const showEdges = viewMode === "solid" || viewMode === "wireframe";
-    if (!showEdges || !geometry) return null;
-    const e = new THREE.EdgesGeometry(geometry, 20);
+    if (!showEdges || !edgePositions || edgePositions.length === 0) return null;
+    const e = new THREE.BufferGeometry();
+    e.setAttribute("position", new THREE.BufferAttribute(edgePositions, 3));
     edgesRef.current = e;
     return e;
-  }, [geometry, viewMode]);
+  }, [edgePositions, viewMode]);
   useEffect(() => () => edgesRef.current?.dispose(), []);
 
   return (
@@ -859,6 +869,7 @@ export function Viewport() {
   const topology = useModelStore((s) => s.topology);
   const language = useModelStore((s) => s.language);
   const rendering = useModelStore((s) => s.isRendering);
+  const building = useModelStore((s) => s.isBuilding);
   const selection = useSelectionStore((s) => s.selection);
   const toggleSelection = useSelectionStore((s) => s.toggle);
   const clearSelection = useSelectionStore((s) => s.clear);
@@ -872,6 +883,7 @@ export function Viewport() {
   });
   const restoreWithNote = useRestoreWithNote();
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [edgePositions, setEdgePositions] = useState<Float32Array | null>(null);
   const [processing, setProcessing] = useState(false);
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
   const fitRef = useRef<(() => void) | null>(null);
@@ -921,17 +933,21 @@ export function Viewport() {
     if (!mesh) {
       geometryRef.current?.dispose();
       geometryRef.current = null;
-      setGeometry(null);
-      setProcessing(false);
+      startTransition(() => {
+        setGeometry(null);
+        setEdgePositions(null);
+        setProcessing(false);
+      });
       return;
     }
 
     let cancelled = false;
     setProcessing(true);
+    // Dedicated copy for worker transfer — store-owned buffer stays intact.
     const positions = new Float32Array(mesh.positions);
 
     buildMesh(positions)
-      .then(({ positions: p, normals, center, radius }) => {
+      .then(({ positions: p, normals, edges, center, radius }) => {
         if (cancelled) return;
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
@@ -942,11 +958,16 @@ export function Viewport() {
         );
         geometryRef.current?.dispose();
         geometryRef.current = geo;
-        setGeometry(geo);
-        setProcessing(false);
+        startTransition(() => {
+          setGeometry(geo);
+          setEdgePositions(edges);
+          setProcessing(false);
+        });
       })
       .catch(() => {
-        if (!cancelled) setProcessing(false);
+        if (!cancelled) {
+          startTransition(() => setProcessing(false));
+        }
       });
 
     return () => {
@@ -980,6 +1001,7 @@ export function Viewport() {
       >
         <Scene
           geometry={geometry}
+          edgePositions={edgePositions}
           fitRef={fitRef}
           frameRef={frameRef}
           gridColors={gridColors}
@@ -1003,11 +1025,6 @@ export function Viewport() {
       ) : !mesh ? (
         <EmptyHint />
       ) : null}
-      {processing && (
-        <div className="pointer-events-none absolute left-3 top-3 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm">
-          Processing mesh…
-        </div>
-      )}
       {previewingRevId && (
         <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs shadow-sm">
           <span className="font-medium text-primary">
@@ -1034,7 +1051,12 @@ export function Viewport() {
           </Button>
         </div>
       )}
-      {rendering ? (
+      {processing ? (
+        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+          <Loader2 className="size-3.5 animate-spin" />
+          Processing mesh…
+        </div>
+      ) : rendering || building ? (
         <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />
           Rendering…
@@ -1056,115 +1078,115 @@ export function Viewport() {
           </TooltipContent>
         </Tooltip>
       ) : null}
-      <div className="absolute bottom-3 left-3 flex flex-col gap-1">
-        {selectMode === "precise" && (
-          <div className="flex items-center gap-0.5 self-end rounded-md border bg-background/80 p-0.5">
-            {PRECISE_KINDS.map((m) => {
-              const Icon = m.icon;
-              const active = m.value === preciseKind;
-              return (
-                <Tooltip key={m.value}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className={cn(
-                        "h-7 w-7",
-                        active && "bg-primary text-primary-foreground",
-                      )}
-                      onClick={() => setPreciseKind(m.value)}
-                      aria-label={m.label}
-                      aria-pressed={active}
-                    >
-                      <Icon className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{m.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
+      <div className="absolute bottom-3 left-3 flex items-end gap-1.5">
+        <div className="flex flex-col gap-1">
+          {selectMode === "precise" && (
+            <div className="flex items-center gap-0.5 self-end rounded-md border bg-background/80 p-0.5">
+              {PRECISE_KINDS.map((m) => {
+                const Icon = m.icon;
+                const active = m.value === preciseKind;
+                return (
+                  <Tooltip key={m.value}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className={cn(
+                          "h-7 w-7",
+                          active && "bg-primary text-primary-foreground",
+                        )}
+                        onClick={() => setPreciseKind(m.value)}
+                        aria-label={m.label}
+                        aria-pressed={active}
+                      >
+                        <Icon className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{m.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={cn(
+                    "h-7 w-7",
+                    selectMode === "off"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground",
+                  )}
+                  onClick={() => setSelectMode("off")}
+                  aria-label="Orbit (no selection)"
+                  aria-pressed={selectMode === "off"}
+                >
+                  <Compass className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Orbit (no selection)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canSelect}
+                  className={cn(
+                    "h-7 w-7",
+                    selectMode === "all" && "bg-primary text-primary-foreground",
+                  )}
+                  onClick={() =>
+                    setSelectMode(selectMode === "all" ? "off" : "all")
+                  }
+                  aria-label="Select all (vertices, edges, faces)"
+                  aria-pressed={selectMode === "all"}
+                >
+                  <Crosshair className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {canSelect
+                  ? "Select all (vertices, edges, faces)"
+                  : "Selection requires a Build123D part (B-rep)"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canSelect}
+                  className={cn(
+                    "h-7 w-7",
+                    selectMode === "precise" &&
+                      "bg-primary text-primary-foreground",
+                  )}
+                  onClick={() =>
+                    setSelectMode(selectMode === "precise" ? "off" : "precise")
+                  }
+                  aria-label="Select a specific entity type"
+                  aria-pressed={selectMode === "precise"}
+                >
+                  <Target className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {canSelect
+                  ? "Select precise (face / edge / vertex)"
+                  : "Selection requires a Build123D part (B-rep)"}
+              </TooltipContent>
+            </Tooltip>
           </div>
-        )}
-        <div className="flex items-center gap-0.5 rounded-md border bg-background/80 p-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "off"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground",
-                )}
-                onClick={() => setSelectMode("off")}
-                aria-label="Orbit (no selection)"
-                aria-pressed={selectMode === "off"}
-              >
-                <Compass className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">Orbit (no selection)</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canSelect}
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "all" && "bg-primary text-primary-foreground",
-                )}
-                onClick={() =>
-                  setSelectMode(selectMode === "all" ? "off" : "all")
-                }
-                aria-label="Select all (vertices, edges, faces)"
-                aria-pressed={selectMode === "all"}
-              >
-                <Crosshair className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {canSelect
-                ? "Select all (vertices, edges, faces)"
-                : "Selection requires a Build123D part (B-rep)"}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={!canSelect}
-                className={cn(
-                  "h-7 w-7",
-                  selectMode === "precise" &&
-                    "bg-primary text-primary-foreground",
-                )}
-                onClick={() =>
-                  setSelectMode(selectMode === "precise" ? "off" : "precise")
-                }
-                aria-label="Select a specific entity type"
-                aria-pressed={selectMode === "precise"}
-              >
-                <Target className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {canSelect
-                ? "Select precise (face / edge / vertex)"
-                : "Selection requires a Build123D part (B-rep)"}
-            </TooltipContent>
-          </Tooltip>
         </div>
-      </div>
-      <div className="absolute bottom-3 right-3">
-        <SelectionIndicator align="end" side="top" variant="overlay" />
+        <SelectionIndicator align="start" side="top" variant="overlay" />
       </div>
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (

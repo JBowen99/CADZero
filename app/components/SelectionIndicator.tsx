@@ -17,7 +17,7 @@ import { cn } from "~/lib/utils";
 import { useSelectionStore } from "~/store/useSelectionStore";
 import type { SelectionKind } from "~/types";
 
-const KIND_ICON: Record<SelectionKind, LucideIcon> = {
+export const SELECTION_KIND_ICON: Record<SelectionKind, LucideIcon> = {
   face: Square,
   edge: Slash,
   vertex: CircleDot,
@@ -88,7 +88,7 @@ export function SelectionIndicator({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <ul className="flex flex-col p-1.5">
             {selection.map((s) => {
-              const Icon = KIND_ICON[s.kind] ?? Square;
+              const Icon = SELECTION_KIND_ICON[s.kind] ?? Square;
               return (
                 <li
                   key={`${s.kind}-${s.id}`}

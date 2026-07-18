@@ -1,17 +1,14 @@
 import { useEffect, useRef } from "react";
-import type { UIMessage } from "ai";
-import { useChatActions, useChatState } from "~/lib/ai-chat";
+import { useChatActions, useChatLiveMessagesRef } from "~/lib/ai-chat";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 
 export function useTabChatSync() {
-  const { messages } = useChatState();
+  const liveMessagesRef = useChatLiveMessagesRef();
   const { setMessages } = useChatActions();
   const activeClientId = useDocumentsStore((s) => s.activeClientId);
   const snapshotChat = useDocumentsStore((s) => s.snapshotChat);
   const loadChat = useDocumentsStore((s) => s.loadChat);
 
-  const messagesRef = useRef<UIMessage[]>(messages);
-  messagesRef.current = messages;
   const prevActiveRef = useRef<string | null>(activeClientId);
 
   useEffect(() => {
@@ -19,7 +16,7 @@ export function useTabChatSync() {
     const next = activeClientId;
     if (prev === next) return;
     prevActiveRef.current = next;
-    if (prev) snapshotChat(prev, messagesRef.current);
+    if (prev) snapshotChat(prev, liveMessagesRef.current);
     if (next === null) {
       setMessages([]);
       return;
@@ -42,5 +39,5 @@ export function useTabChatSync() {
         setMessages(loaded);
       }
     });
-  }, [activeClientId, setMessages, snapshotChat, loadChat]);
+  }, [activeClientId, setMessages, snapshotChat, loadChat, liveMessagesRef]);
 }

@@ -1,8 +1,11 @@
-import { memo } from "react";
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { memo, startTransition, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, RotateCcw } from "lucide-react";
 import type { UIMessage } from "ai";
+import { AssistantStatusMessage } from "~/components/AssistantStatusMessage";
 import { CodeBlock } from "~/components/CodeBlock";
+import { MessageSelectionContext } from "~/components/MessageSelectionContext";
 import { cn } from "~/lib/utils";
+import type { ChatMessageMetadata } from "~/types";
 
 interface BuildPart {
   type: `tool-${string}`;
@@ -26,10 +29,31 @@ interface ImagePart {
 
 function BuildCard({ part }: { part: BuildPart }) {
   const state = part.state;
+  const streamingInput = state === "input-streaming";
   const done = state === "output-available" || state === "output-error";
   const out = part.output;
   const failed = done && out?.success === false;
   const code = part.input?.code ?? "";
+  const showCode = !!code && !streamingInput;
+  const [codeReady, setCodeReady] = useState(false);
+
+  // Defer mounting the full <pre> so status UI can paint first.
+  useEffect(() => {
+    if (!showCode) {
+      setCodeReady(false);
+      return;
+    }
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      startTransition(() => {
+        if (!cancelled) setCodeReady(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [showCode, code]);
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -38,25 +62,36 @@ function BuildCard({ part }: { part: BuildPart }) {
           {part.input.message}
         </p>
       )}
-      {code && <CodeBlock code={code} language={part.input?.language ?? "openscad"} />}
-      <div
-        className={cn(
-          "flex items-center gap-1.5 px-1 text-xs",
-          failed ? "text-destructive" : "text-muted-foreground",
-        )}
-      >
-        {!done && <Loader2 className="size-3.5 animate-spin" />}
-        {done && !failed && (
-          <CheckCircle2 className="size-3.5 text-emerald-500" />
-        )}
-        {failed && <AlertCircle className="size-3.5" />}
-        <span>
-          {!done && "Rendering model…"}
-          {done && !failed &&
-            `Rendered${out?.triangleCount ? ` · ${out.triangleCount.toLocaleString()} triangles` : ""}`}
-          {failed && "OpenSCAD failed to render"}
-        </span>
-      </div>
+      {streamingInput && (
+        <AssistantStatusMessage>Generating code…</AssistantStatusMessage>
+      )}
+      {showCode && !codeReady && (
+        <AssistantStatusMessage>Preparing code…</AssistantStatusMessage>
+      )}
+      {showCode && codeReady && (
+        <CodeBlock code={code} language={part.input?.language ?? "openscad"} />
+      )}
+      {!streamingInput && !done && (
+        <AssistantStatusMessage>Rendering model…</AssistantStatusMessage>
+      )}
+      {!streamingInput && done && (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 px-1 text-xs",
+            failed ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {!failed && (
+            <CheckCircle2 className="size-3.5 text-emerald-500" />
+          )}
+          {failed && <AlertCircle className="size-3.5" />}
+          <span>
+            {!failed &&
+              `Rendered${out?.triangleCount ? ` · ${out.triangleCount.toLocaleString()} triangles` : ""}`}
+            {failed && "OpenSCAD failed to render"}
+          </span>
+        </div>
+      )}
       {failed && out?.stderr && (
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive/90">
           {out.stderr}
@@ -83,6 +118,8 @@ function ChatMessageBase({ message }: ChatMessageProps) {
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
     .join("");
+  const selection =
+    (message.metadata as ChatMessageMetadata | undefined)?.selection ?? [];
 
   if (isRestoreEvent) {
     return (
@@ -116,6 +153,9 @@ function ChatMessageBase({ message }: ChatMessageProps) {
           isUser && "items-end",
         )}
       >
+        {isUser && selection.length > 0 && (
+          <MessageSelectionContext selection={selection} />
+        )}
         {text && (
           <div
             className={cn(

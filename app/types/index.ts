@@ -51,6 +51,11 @@ export interface TopologySelection {
   summary: string;
 }
 
+/** Persisted on UIMessage.metadata so chat history can show selection context. */
+export interface ChatMessageMetadata {
+  selection?: TopologySelection[];
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;

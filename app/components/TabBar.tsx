@@ -48,12 +48,6 @@ export function TabBar() {
                 <span className="size-1.5 shrink-0 rounded-full bg-primary" />
               ) : null}
               <span className="max-w-[150px] truncate">{label}</span>
-              {doc.language === "build123d" && (
-                <span
-                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
-                  title="Build123D"
-                />
-              )}
               {doc.previewingRevId && (
                 <History className="size-3 shrink-0 text-primary" />
               )}

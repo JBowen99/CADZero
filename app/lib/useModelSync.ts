@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { startTransition, useEffect, useRef } from "react";
 import type { UIMessage } from "ai";
 import type { BackendName, Topology, TriangleMesh } from "~/types";
-import { useChatState } from "~/lib/ai-chat";
+import { useChatLiveMessagesRef, useChatState } from "~/lib/ai-chat";
 import { meshUrl, topologyUrl } from "~/lib/api";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
@@ -64,36 +64,40 @@ async function fetchTopology(id: string): Promise<Topology | null> {
 
 export function useModelSync() {
   const { messages } = useChatState();
+  const liveMessagesRef = useChatLiveMessagesRef();
   const processedRef = useRef<Set<string>>(new Set());
+  const wasBuildingRef = useRef(false);
 
   useEffect(() => {
     const last = messages[messages.length - 1];
     const parts = collectBuilds(last?.parts);
     if (parts.length === 0) {
-      useModelStore.getState().setBuilding(false);
+      if (wasBuildingRef.current) {
+        wasBuildingRef.current = false;
+        useModelStore.getState().setBuilding(false);
+      }
       return;
     }
 
     let lastResolved: BuildPart | null = null;
+    // True while the server is tessellating (not while code is still streaming).
     let building = false;
 
     for (const part of parts) {
       if (part.state === "output-available" || part.state === "output-error") {
         lastResolved = part;
-        building = false;
-      } else if (
-        part.state === "input-streaming" ||
-        part.state === "input-available"
-      ) {
+      } else if (part.state === "input-available") {
         building = true;
       }
     }
 
-    useModelStore.getState().setBuilding(building);
-
-    const ac = useDocumentsStore.getState().activeClientId;
-    if (ac && building) {
-      useDocumentsStore.getState().setSaveState(ac, "saving");
+    if (building !== wasBuildingRef.current) {
+      wasBuildingRef.current = building;
+      useModelStore.getState().setBuilding(building);
+      const ac = useDocumentsStore.getState().activeClientId;
+      if (ac && building) {
+        useDocumentsStore.getState().setSaveState(ac, "saving");
+      }
     }
 
     if (!lastResolved) return;
@@ -101,24 +105,45 @@ export function useModelSync() {
     if (!tcid || processedRef.current.has(tcid)) return;
     processedRef.current.add(tcid);
 
-    const { output, input } = lastResolved;
+    // Prefer live messages so we always have full tool code (display may stub it).
+    const liveLast = liveMessagesRef.current[liveMessagesRef.current.length - 1];
+    const liveBuilds = collectBuilds(liveLast?.parts);
+    const liveResolved =
+      liveBuilds.find((p) => p.toolCallId === tcid) ?? lastResolved;
+
+    const { output, input } = liveResolved;
     if (output?.success && output.meshId && input?.code) {
       const language: BackendName = input.language ?? "openscad";
-      void fetchMesh(output.meshId).then(async (mesh) => {
-        const topology =
-          language === "build123d" ? await fetchTopology(output.meshId!) : null;
-        useModelStore
-          .getState()
-          .setModel(mesh, input.code!, language, topology);
-        useDocumentsStore.getState().patchActiveDoc({
-          mesh,
-          topology,
-          cadCode: input.code!,
-          meshCode: input.code!,
-          language,
-          codeDirty: false,
+      const code = input.code;
+      // Keep the viewport "Rendering…" badge up through mesh fetch.
+      wasBuildingRef.current = true;
+      useModelStore.getState().setBuilding(true);
+      void fetchMesh(output.meshId)
+        .then(async (mesh) => {
+          const topology =
+            language === "build123d"
+              ? await fetchTopology(output.meshId!)
+              : null;
+          // Let chat UI commit before heavy store/viewport updates.
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+          startTransition(() => {
+            useModelStore.getState().setModel(mesh, code, language, topology);
+            useDocumentsStore.getState().patchActiveDoc({
+              mesh,
+              topology,
+              cadCode: code,
+              meshCode: code,
+              language,
+              codeDirty: false,
+            });
+            wasBuildingRef.current = false;
+            useModelStore.getState().setBuilding(false);
+          });
+        })
+        .catch(() => {
+          wasBuildingRef.current = false;
+          useModelStore.getState().setBuilding(false);
         });
-      });
       const docs = useDocumentsStore.getState();
       const active = docs.openDocs.find(
         (d) => d.clientId === docs.activeClientId,
@@ -136,6 +161,9 @@ export function useModelSync() {
         });
         void useWorkspaceStore.getState().refresh();
       }
+    } else {
+      wasBuildingRef.current = false;
+      useModelStore.getState().setBuilding(false);
     }
-  }, [messages]);
+  }, [messages, liveMessagesRef]);
 }

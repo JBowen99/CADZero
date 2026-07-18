@@ -1,6 +1,6 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import type { UIMessage } from "ai";
-import { useChatActions, useChatState } from "~/lib/ai-chat";
+import { useChatActions, useChatLiveMessagesRef } from "~/lib/ai-chat";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { revisionsUrl } from "~/lib/api";
 import type { RevisionDTO } from "~/types";
@@ -26,9 +26,7 @@ export function useRestoreWithNote() {
   const restoreRevision = useDocumentsStore((s) => s.restoreRevision);
   const snapshotChat = useDocumentsStore((s) => s.snapshotChat);
   const { setMessages } = useChatActions();
-  const { messages } = useChatState();
-  const messagesRef = useRef<UIMessage[]>(messages);
-  messagesRef.current = messages;
+  const liveMessagesRef = useChatLiveMessagesRef();
 
   return useCallback(
     async (revId: string) => {
@@ -73,8 +71,8 @@ export function useRestoreWithNote() {
         if (doc) snapshotChat(clientId, [...doc.chat, msg]);
         return;
       }
-      setMessages([...messagesRef.current, msg]);
+      setMessages([...liveMessagesRef.current, msg]);
     },
-    [restoreRevision, snapshotChat, setMessages],
+    [restoreRevision, snapshotChat, setMessages, liveMessagesRef],
   );
 }

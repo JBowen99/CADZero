@@ -16,9 +16,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
+import { AssistantStatusMessage } from "./AssistantStatusMessage";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionIndicator } from "./SelectionIndicator";
-import { describeChatError, isChatBusy, useChatActions, useChatState, useChatStatus } from "~/lib/ai-chat";
+import {
+  assistantHasVisibleParts,
+  describeChatError,
+  isChatBusy,
+  useChatActions,
+  useChatState,
+  useChatStatus,
+} from "~/lib/ai-chat";
 import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
@@ -105,6 +113,9 @@ export function ChatPanel() {
   const { sendMessage, stop, regenerate } = useChatActions();
   const status = useChatStatus();
   const busy = isChatBusy(status);
+  const showThinking =
+    status === "submitted" ||
+    (status === "streaming" && !assistantHasVisibleParts(messages));
   const errorInfo = describeChatError(error);
   const mode = useChatModeStore((s) => s.mode);
   const setMode = useChatModeStore((s) => s.setMode);
@@ -279,7 +290,12 @@ export function ChatPanel() {
         </div>
       ) : messages.length === 0 ? (
         <div className="flex-1 overflow-hidden">
-          <EmptyChat onPick={(p) => sendMessage({ text: p })} />
+          <EmptyChat
+            onPick={(p) => {
+              void sendMessage({ text: p });
+              clearSelection();
+            }}
+          />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -287,11 +303,10 @@ export function ChatPanel() {
             {messages.map((message) => (
               <ChatMessage key={message.id} message={message} />
             ))}
-            {status === "submitted" && (
-              <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" />
+            {showThinking && (
+              <AssistantStatusMessage padded>
                 Assistant is thinking…
-              </div>
+              </AssistantStatusMessage>
             )}
             <div ref={bottomRef} />
           </div>
