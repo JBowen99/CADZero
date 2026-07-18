@@ -13,6 +13,11 @@ import {
 import { z } from "zod";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { config } from "./env";
+import {
+  type CredentialStore,
+  SUPPORTED_PROVIDERS,
+  describeProviderStatus,
+} from "./credentials";
 import { buildInstructions, type ChatMode } from "./system-prompt";
 import type { BackendName } from "./backend-types";
 import { checkOpenScad } from "./backends/openscad";
@@ -20,7 +25,7 @@ import { checkBuild123d } from "./backends/build123d";
 import { exportFor, renderFor } from "./backends";
 import type { Topology, TopologySelection } from "./renderer/topology";
 import { storeMesh, getMesh, getTopology } from "./mesh-store";
-import { listAvailableModels, resolveModelId } from "./models";
+import { listAvailableModels, resolveModelId, setKeyResolver } from "./models";
 import {
   getWorkspaceRoot,
   listWorkspaceParts,
@@ -50,9 +55,27 @@ import {
 } from "./storage/parts";
 import type { PartType } from "./storage/types";
 
-const openrouter = createOpenRouter({ apiKey: config.openrouterApiKey });
+export interface ServerOptions {
+  credentialStore: CredentialStore;
+}
 
 const MAX_TRIANGLES = 500_000;
+
+let credentialStore: CredentialStore | null = null;
+
+export function configureServer(store: CredentialStore): void {
+  credentialStore = store;
+  setKeyResolver(() => store.get("openrouter"));
+}
+
+function requireCredentialStore(): CredentialStore {
+  if (!credentialStore) {
+    throw new Error(
+      "Server not configured. Call configureServer() with a credential store before serving requests.",
+    );
+  }
+  return credentialStore;
+}
 
 const EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
   stl: { ext: "stl", mime: "model/stl" },
@@ -133,6 +156,32 @@ app.put("/api/settings", async (c) => {
       400,
     );
   }
+});
+
+app.get("/api/provider", (c) => {
+  const store = requireCredentialStore();
+  return c.json(describeProviderStatus(store));
+});
+
+app.put("/api/provider/:name/key", async (c) => {
+  const name = c.req.param("name");
+  if (!(SUPPORTED_PROVIDERS as readonly string[]).includes(name)) {
+    return c.json({ error: `Unsupported provider: ${name}` }, 400);
+  }
+  const body = await c.req.json<{ apiKey?: unknown }>().catch(() => null);
+  if (!body || typeof body.apiKey !== "string" || body.apiKey.trim().length === 0) {
+    return c.json({ error: "apiKey (non-empty string) required" }, 400);
+  }
+  const store = requireCredentialStore();
+  try {
+    store.set(name, body.apiKey.trim());
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : "credential write failed" },
+      400,
+    );
+  }
+  return c.json(describeProviderStatus(store));
 });
 
 function sendMeshBody(
@@ -593,6 +642,18 @@ app.post("/api/chat", async (c) => {
   } catch {
     workspaceRoot = null;
   }
+
+  const apiKey = requireCredentialStore().get("openrouter");
+  if (!apiKey) {
+    return c.json(
+      {
+        error:
+          "No OpenRouter API key configured. Open Settings (gear icon) and add your key, then try again.",
+      },
+      401,
+    );
+  }
+  const openrouter = createOpenRouter({ apiKey });
 
   const result = streamText({
     model: openrouter.chat(modelId),

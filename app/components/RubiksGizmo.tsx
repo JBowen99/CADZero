@@ -17,7 +17,7 @@ const CUBIE_FACE = "#d4d4d8"; // outer (plain) cubie faces
 const BODY = "#18181b"; // inner cubie faces + gap backing (the dark frame)
 const CUBIE = 0.94; // cubie edge length (spacing is 1.0 → visible dark gaps)
 const CORE = 2.9; // backing box so inter-cubie gaps read as a dark frame
-const GROUP_SCALE = 20; // overall footprint (~matches drei GizmoViewcube)
+const GROUP_SCALE = 25; // overall footprint (~matches drei GizmoViewcube)
 const HOVER_AMOUNT = 0.3;
 
 // Axis colors for the six face-center cubies (match the viewport axes).

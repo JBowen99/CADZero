@@ -5,6 +5,7 @@ import { TabBar } from "~/components/TabBar";
 import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
+import { ProviderSetup } from "~/components/ProviderSetup";
 import { NamePrompt } from "~/components/NamePrompt";
 import { NewPartDialog } from "~/components/NewPartDialog";
 import { CodeDirtyGuardDialog } from "~/components/CodeDirtyGuardDialog";
@@ -24,6 +25,7 @@ import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
 import { useCapabilitiesStore } from "~/store/useCapabilitiesStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useProvidersStore } from "~/store/useProvidersStore";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -45,6 +47,10 @@ function Workspace() {
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const lastOpenDocIds = useSettingsStore((s) => s.lastOpenDocIds);
   const setOpenDocOrder = useSettingsStore((s) => s.setOpenDocOrder);
+  const providersLoaded = useProvidersStore((s) => s.loaded);
+  const openrouterConfigured = useProvidersStore(
+    (s) => Boolean(s.providers.openrouter?.configured),
+  );
   const openDocs = useDocumentsStore((s) => s.openDocs);
   const activeClientId = useDocumentsStore((s) => s.activeClientId);
   const reopenedRef = useRef(false);
@@ -67,6 +73,7 @@ function Workspace() {
   useEffect(() => {
     void useSettingsStore.getState().load();
     void useCapabilitiesStore.getState().load();
+    void useProvidersStore.getState().load();
     void initWs();
   }, [initWs]);
 
@@ -120,6 +127,9 @@ function Workspace() {
         </ResizablePanel>
       </ResizablePanelGroup>
       {wsInitialized && !configured && <WorkspaceSetup />}
+      {wsInitialized && configured && providersLoaded && !openrouterConfigured && (
+        <ProviderSetup />
+      )}
       <NamePrompt />
       <NewPartDialog />
       <CodeDirtyGuardDialog />

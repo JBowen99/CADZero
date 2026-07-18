@@ -2,6 +2,10 @@ import { app, BrowserWindow, ipcMain, protocol, shell } from "electron";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { serve } from "@hono/node-server";
+import { config } from "../server/env";
+import { app as honoApp, configureServer } from "../server/app";
+import { SafeStorageCredentialStore } from "./credentials";
 
 const DEV_SERVER_URL = "http://localhost:5173";
 const BACKEND_ORIGIN =
@@ -39,6 +43,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
+let backendServer: ReturnType<typeof serve> | null = null;
 
 function getPreloadPath(): string {
   return path.join(app.getAppPath(), "dist-electron", "preload.cjs");
@@ -46,6 +51,36 @@ function getPreloadPath(): string {
 
 function getRendererDir(): string {
   return path.join(app.getAppPath(), "build", "client");
+}
+
+function startEmbeddedBackend(): Promise<void> {
+  const credentialStore = new SafeStorageCredentialStore();
+  configureServer(credentialStore);
+  return new Promise((resolve, reject) => {
+    try {
+      backendServer = serve(
+        { fetch: honoApp.fetch, port: config.port, hostname: "127.0.0.1" },
+        (info) => {
+          const port = typeof info.port === "number" ? info.port : config.port;
+          console.log(`[cadzero] Embedded backend listening on http://127.0.0.1:${port}`);
+          resolve();
+        },
+      );
+      backendServer.on("error", reject);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function stopEmbeddedBackend(): Promise<void> {
+  if (!backendServer) return Promise.resolve();
+  return new Promise((resolve) => {
+    backendServer?.close(() => {
+      backendServer = null;
+      resolve();
+    });
+  });
 }
 
 async function proxyToBackend(request: Request, url: URL): Promise<Response> {
@@ -158,7 +193,7 @@ function createWindow(): void {
   if (!app.isPackaged) {
     void mainWindow.loadURL(DEV_SERVER_URL);
   } else {
-    void mainWindow.loadURL("app://bundle/index.html");
+    void mainWindow.loadURL("app://bundle/");
   }
 
   mainWindow.on("closed", () => {
@@ -173,8 +208,17 @@ function createWindow(): void {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   protocol.handle("app", handleAppProtocol);
+
+  try {
+    await startEmbeddedBackend();
+  } catch (e) {
+    console.error(
+      "[cadzero] Failed to start embedded backend:",
+      e instanceof Error ? e.message : e,
+    );
+  }
 
   ipcMain.on("window:minimize", () => mainWindow?.minimize());
   ipcMain.on("window:toggle-maximize", () => {
@@ -194,9 +238,31 @@ app.whenReady().then(() => {
   });
 });
 
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("before-quit", (event) => {
+  if (backendServer) {
+    event.preventDefault();
+    void stopEmbeddedBackend().then(() => {
+      backendServer = null;
+      app.quit();
+    });
   }
 });
 

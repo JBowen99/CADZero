@@ -8,6 +8,7 @@ import {
   Moon,
   Pencil,
   Save,
+  Settings,
   Sun,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -33,6 +34,7 @@ import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 import { PartsBrowser } from "~/components/PartsBrowser";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
+import { SettingsDialog } from "~/components/SettingsDialog";
 import { WindowControls } from "~/components/WindowControls";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
@@ -122,6 +124,7 @@ export function Toolbar() {
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleExport = async (format: ExportFormat) => {
     if (!activeId) {
@@ -159,6 +162,20 @@ export function Toolbar() {
       <span className="font-semibold tracking-tight">
         CAD<span className="text-primary">Zero</span>
       </span>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+          >
+            <Settings className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Settings</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -289,6 +306,7 @@ export function Toolbar() {
       <WindowControls />
 
       <PartsBrowser open={browserOpen} onOpenChange={setBrowserOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <WorkspaceSetup
         open={setupOpen}
         onOpenChange={setSetupOpen}

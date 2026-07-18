@@ -1,7 +1,11 @@
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { config } from "./env";
+import modelsConfigJson from "./models.config.json";
+
+let keyResolver: () => string | null = () => null;
+
+export function setKeyResolver(fn: () => string | null): void {
+  keyResolver = fn;
+}
 
 interface ModelsConfig {
   default: string;
@@ -31,17 +35,13 @@ interface OpenRouterModelInfo {
   supportsVision: boolean;
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = join(__dirname, "models.config.json");
-
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let cache: { at: number; models: AvailableModel[] } | null = null;
 let inflight: Promise<AvailableModel[]> | null = null;
 
-async function loadConfig(): Promise<ModelsConfig> {
-  const raw = await readFile(CONFIG_PATH, "utf8");
-  const parsed = JSON.parse(raw) as ModelsConfig;
+function loadConfig(): ModelsConfig {
+  const parsed = modelsConfigJson as ModelsConfig;
   if (
     !parsed ||
     !Array.isArray(parsed.models) ||
@@ -53,9 +53,10 @@ async function loadConfig(): Promise<ModelsConfig> {
 }
 
 async function fetchOpenRouterModels(): Promise<Map<string, OpenRouterModelInfo>> {
-  if (!config.openrouterApiKey) return new Map();
+  const apiKey = keyResolver();
+  if (!apiKey) return new Map();
   const res = await fetch("https://openrouter.ai/api/v1/models", {
-    headers: { Authorization: `Bearer ${config.openrouterApiKey}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   if (!res.ok) {
     throw new Error(`OpenRouter /models returned ${res.status}`);

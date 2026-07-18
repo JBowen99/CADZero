@@ -19,6 +19,9 @@ export const capabilitiesUrl = `${API_BASE}/capabilities`;
 export const modelsUrl = `${API_BASE}/models`;
 export const workspaceUrl = `${API_BASE}/workspace`;
 export const settingsUrl = `${API_BASE}/settings`;
+export const providerUrl = `${API_BASE}/provider`;
+export const providerKeyUrl = (name: string) =>
+  `${API_BASE}/provider/${encodeURIComponent(name)}/key`;
 export const partsUrl = `${API_BASE}/parts`;
 export const partUrl = (id: string) => `${API_BASE}/parts/${id}`;
 export const partMeshUrl = (id: string, blobId: string) =>

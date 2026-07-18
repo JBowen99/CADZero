@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { config } from "../env";
+import { BUILD123D_WORKER_SOURCE } from "./build123d_worker_asset";
 import type { TriangleMesh } from "../renderer/stl";
 import type { Topology } from "../renderer/topology";
 import type { ExportResult, RenderResult } from "./types";
@@ -15,22 +15,58 @@ const RENDER_TIMEOUT_MS = 30_000;
 const EXPORT_TIMEOUT_MS = 90_000;
 const VERSION_TIMEOUT_MS = 30_000;
 
-const WORKER_SCRIPT = fileURLToPath(
-  new URL("./build123d_worker.py", import.meta.url),
-);
+let workerScriptPath: string | null = null;
 
-function devBundledPython(): string | null {
-  const candidate = join(process.cwd(), "server", "python", "bin", "python3");
-  return existsSync(candidate) ? candidate : null;
+function getWorkerScript(): string {
+  if (workerScriptPath && existsSync(workerScriptPath)) return workerScriptPath;
+  workerScriptPath = join(tmpdir(), `cadzero-build123d-worker-${randomUUID()}.py`);
+  writeFileSync(workerScriptPath, BUILD123D_WORKER_SOURCE, { mode: 0o644 });
+  return workerScriptPath;
+}
+
+function bundledPythonBin(): string | null {
+  // Explicit override via env/config
+  if (config.pythonPath && config.pythonPath.length > 0) {
+    return existsSync(config.pythonPath) ? config.pythonPath : null;
+  }
+  // Packaged Electron app: runtime shipped as extraResources/python-runtime
+  const resourcesPath = process.resourcesPath;
+  if (resourcesPath) {
+    const candidate = join(resourcesPath, "python-runtime", "bin", "python3");
+    if (existsSync(candidate)) return candidate;
+  }
+  // Dev mode: runtime at <repo>/server/python/bin/python3
+  const dev = join(process.cwd(), "server", "python", "bin", "python3");
+  if (existsSync(dev)) return dev;
+  return null;
 }
 
 export function resolvePythonBin(): string {
-  if (config.pythonPath && config.pythonPath.length > 0) {
-    return config.pythonPath;
-  }
-  const dev = devBundledPython();
-  if (dev) return dev;
+  const bundled = bundledPythonBin();
+  if (bundled) return bundled;
+  // Last-resort: hope system python3 has build123d
   return "python3";
+}
+
+function cleanBuild123dError(rawStderr: string): string {
+  const text = rawStderr.trim();
+  if (!text) return "";
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const l = line.trim();
+    if (/No module named ['"]?build123d/.test(l)) {
+      return "build123d not installed (pip install build123d)";
+    }
+    if (l.startsWith("ModuleNotFoundError:") || l.startsWith("ImportError:")) {
+      return l;
+    }
+    if (l.includes("No module named")) {
+      return l;
+    }
+  }
+  const last = lines.filter((l) => l.trim()).pop();
+  if (last && last.trim().length <= 100) return last.trim();
+  return "Build123D runtime error";
 }
 
 type Pending = {
@@ -55,7 +91,7 @@ class Build123DWorker {
 
   private spawn(): Promise<void> {
     const bin = resolvePythonBin();
-    const proc = spawn(bin, ["-u", WORKER_SCRIPT], {
+    const proc = spawn(bin, ["-u", getWorkerScript()], {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.proc = proc;
@@ -286,7 +322,7 @@ export async function checkBuild123d(): Promise<{
       called = true;
       resolve(r);
     };
-    const proc = spawn(bin, ["-u", WORKER_SCRIPT], {
+    const proc = spawn(bin, ["-u", getWorkerScript()], {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const readline = createInterface({
@@ -318,13 +354,13 @@ export async function checkBuild123d(): Promise<{
     });
     proc.on("exit", () => {
       clearTimeout(timer);
+      const cleaned = cleanBuild123dError(stderrBuf.join(""));
       done({
         ok: false,
-        error:
-          stderrBuf.join("").trim() ||
-          (devBundledPython()
+        error: cleaned ||
+          (bundledPythonBin()
             ? ""
-            : " (no bundled Python found — run scripts/setup-python.sh or set PYTHON_PATH)"),
+            : "Python runtime not bundled. Run scripts/setup-python.sh before packaging."),
       });
     });
     proc.on("error", (err) => {

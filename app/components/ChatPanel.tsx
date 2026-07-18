@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileUIPart } from "ai";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowUp, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
+import { AlertTriangle, ArrowUp, FilePlus2, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import {
@@ -76,6 +76,30 @@ function EmptyChat({ onPick }: { onPick: (prompt: string) => void }) {
   );
 }
 
+function NoDocChat({ onNew }: { onNew: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+      <span className="flex size-12 items-center justify-center rounded-full bg-muted">
+        <MessageSquare className="size-5 text-muted-foreground" />
+      </span>
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Create a new part to begin</h3>
+        <p className="text-xs text-muted-foreground">
+          Choose a backend, then start chatting to build your part.
+        </p>
+      </div>
+      <Button
+        size="sm"
+        className="h-8 gap-1.5"
+        onClick={onNew}
+      >
+        <FilePlus2 className="size-3.5" />
+        New part
+      </Button>
+    </div>
+  );
+}
+
 export function ChatPanel() {
   const { messages, error } = useChatState();
   const { sendMessage, stop, regenerate } = useChatActions();
@@ -89,6 +113,10 @@ export function ChatPanel() {
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const clearSelection = useSelectionStore((s) => s.clear);
+  const hasActiveDoc = useDocumentsStore((s) => s.openDocs.length > 0);
+  const setNewPartDialogOpen = useDocumentsStore(
+    (s) => s.setNewPartDialogOpen,
+  );
   const chatLoading = useDocumentsStore(
     (s) =>
       s.openDocs.find((d) => d.clientId === s.activeClientId)?.chatLoading ??
@@ -245,6 +273,10 @@ export function ChatPanel() {
           <Loader2 className="size-4 animate-spin" />
           Loading conversation…
         </div>
+      ) : !hasActiveDoc ? (
+        <div className="flex-1 overflow-hidden">
+          <NoDocChat onNew={() => setNewPartDialogOpen(true)} />
+        </div>
       ) : messages.length === 0 ? (
         <div className="flex-1 overflow-hidden">
           <EmptyChat onPick={(p) => sendMessage({ text: p })} />
@@ -352,10 +384,13 @@ export function ChatPanel() {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          disabled={!hasActiveDoc}
           placeholder={
-            visionModel
-              ? PLACEHOLDER[mode]
-              : PLACEHOLDER[mode] + " (current model can't read images)"
+            !hasActiveDoc
+              ? "Create a new part to start chatting"
+              : visionModel
+                ? PLACEHOLDER[mode]
+                : PLACEHOLDER[mode] + " (current model can't read images)"
           }
           className="min-h-[72px] max-h-[200px] resize-none text-sm"
         />
@@ -416,7 +451,7 @@ export function ChatPanel() {
                 size="icon-sm"
                 className="h-7 w-7 shrink-0 text-muted-foreground"
                 onClick={openFilePicker}
-                disabled={!visionModel}
+                disabled={!visionModel || !hasActiveDoc}
                 aria-label="Attach images"
               >
                 <Paperclip className="size-4" />
@@ -436,6 +471,7 @@ export function ChatPanel() {
                 className="h-7 w-7 shrink-0"
                 onClick={busy ? stop : () => void submit()}
                 disabled={
+                  !hasActiveDoc ||
                   (!busy && !value.trim() && images.length === 0) ||
                   (!!previewingRevId && !busy)
                 }
@@ -457,17 +493,21 @@ export function ChatPanel() {
                 ? status === "streaming"
                   ? "Stop generating"
                   : "Working…"
-                : previewingRevId
-                  ? "Exit history preview to build"
-                  : "Send (⌘/Ctrl+Enter)"}
+                : !hasActiveDoc
+                  ? "Create a new part to start chatting"
+                  : previewingRevId
+                    ? "Exit history preview to build"
+                    : "Send (⌘/Ctrl+Enter)"}
             </TooltipContent>
           </Tooltip>
         </div>
         <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px]">
           <span className="text-muted-foreground">
-            {previewingRevId
-              ? "Viewing an older version — restore or return to current to build."
-              : "⌘/Ctrl + Enter to send"}
+            {!hasActiveDoc
+              ? "Create a new part to start chatting."
+              : previewingRevId
+                ? "Viewing an older version — restore or return to current to build."
+                : "⌘/Ctrl + Enter to send"}
           </span>
           {images.length > 0 && !visionModel && (
             <span className="font-medium text-destructive">

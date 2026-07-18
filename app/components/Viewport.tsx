@@ -10,12 +10,13 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, Disc, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, Slash, Square, Target, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, Disc, FilePlus2, FolderOpen, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, Slash, Square, Target, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { RubiksGizmo } from "~/components/RubiksGizmo";
 import { SelectionIndicator } from "~/components/SelectionIndicator";
+import { PartsBrowser } from "~/components/PartsBrowser";
 import {
   Tooltip,
   TooltipContent,
@@ -807,6 +808,52 @@ function EmptyHint() {
   );
 }
 
+function NoTabsHint() {
+  const setNewPartDialogOpen = useDocumentsStore(
+    (s) => s.setNewPartDialogOpen,
+  );
+  const [browserOpen, setBrowserOpen] = useState(false);
+  return (
+    <>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-background/80 px-6 py-5 text-center">
+          <span className="flex size-10 items-center justify-center rounded-full bg-muted">
+            <Box className="size-5 text-muted-foreground" />
+          </span>
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Open or create a new part</p>
+            <p className="text-xs text-muted-foreground">
+              Choose a backend, then start modeling.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setBrowserOpen(true)}
+            >
+              <FolderOpen className="size-3.5" />
+              Open part
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setNewPartDialogOpen(true)}
+            >
+              <FilePlus2 className="size-3.5" />
+              New part
+            </Button>
+          </div>
+        </div>
+      </div>
+      <PartsBrowser open={browserOpen} onOpenChange={setBrowserOpen} />
+    </>
+  );
+}
+
 export function Viewport() {
   const mesh = useModelStore((s) => s.mesh);
   const topology = useModelStore((s) => s.topology);
@@ -818,6 +865,7 @@ export function Viewport() {
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
+  const openDocsLength = useDocumentsStore((s) => s.openDocs.length);
   const meshStale = useDocumentsStore((s) => {
     const d = s.openDocs.find((x) => x.clientId === s.activeClientId);
     return !!d?.mesh && d.cadCode !== (d.meshCode ?? "");
@@ -950,7 +998,11 @@ export function Viewport() {
         />
       </Canvas>
 
-      {!mesh && <EmptyHint />}
+      {openDocsLength === 0 ? (
+        <NoTabsHint />
+      ) : !mesh ? (
+        <EmptyHint />
+      ) : null}
       {processing && (
         <div className="pointer-events-none absolute left-3 top-3 rounded-md border bg-background/80 px-2 py-1 text-xs text-muted-foreground shadow-sm">
           Processing mesh…

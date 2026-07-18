@@ -26,7 +26,13 @@ to save the code as a new `manual` revision, with dirty indicators, an
 out-of-sync viewport warning, and a discard/save guard before builds/restores.
 **Both CAD kernels are live** (OpenSCAD + Build123D), backend type is locked at
 creation, and Build123D parts support **face/edge/vertex selection** as chat
-context. See `AI CAD MVP Project Specification.md` for the full vision.
+context. **The desktop app is now fully self-contained** — the Hono backend
+runs **in-process** inside Electron's main process (no separate server to
+launch); the **Build123D Python runtime** (CPython 3.12 + build123d + OCP) is
+**bundled as `extraResources`** inside the AppImage; and the OpenRouter API
+key is entered via a first-run dialog / Settings UI and stored **encrypted**
+via Electron `safeStorage`. See `AI CAD MVP Project Specification.md` for the
+full vision.
 
 > **Build123D backend (Phases 1–3, all live):** The app has **two
 > interchangeable CAD kernels** — OpenSCAD (external CLI, Z-up) and Build123D
@@ -141,8 +147,9 @@ intentionally deferred — a storage layer will be added later.
 | Package manager  | **pnpm** (pnpm-lock.yaml)                               |
 | Build tool       | Vite 8                                                  |
 | Desktop shell    | **Electron 43** (renderer = the React Router app)       |
-| Packaging        | electron-builder (Linux: AppImage + deb)               |
+| Packaging        | electron-builder (Linux: **AppImage only**)              |
 | AI chat backend  | **Hono** (`server/`) + **Vercel AI SDK v7** + OpenRouter |
+| AI key storage   | **Electron safeStorage** (encrypted, `~/.cadzero/credentials.json`) |
 | Tool schemas     | **zod 4** (added for AI SDK `tool()` input schemas)        |
 | CAD kernel       | **OpenSCAD** (external CLI) **and** Build123D (OpenCascade/OCP, spawned Python + persistent worker) |
 | Persistence      | **better-sqlite3** — one `.cadz` SQLite file per part (`server/storage/`) |
@@ -155,15 +162,16 @@ intentionally deferred — a storage layer will be added later.
 
 ```bash
 pnpm install          # install deps
-pnpm setup:python     # fetch the Build123D Python runtime (optional, ~200MB)
+pnpm setup:python     # fetch the Build123D Python runtime into server/python/ (~1GB, REQUIRED before packaging)
 pnpm dev              # web dev server on http://localhost:5173
-pnpm dev:server       # AI chat backend (Hono) on http://localhost:8787
+pnpm dev:server       # standalone AI backend (Hono) on http://localhost:8787
 pnpm dev:all          # backend + web dev server together (concurrently)
-pnpm dev:desktop      # native Electron app + HMR (loads the dev server)
+pnpm dev:desktop      # native Electron app + HMR (loads the dev server; backend still separate)
 pnpm run typecheck    # react-router typegen && tsc  (ALWAYS run before committing)
 pnpm run build        # production build (SPA)
 pnpm build:desktop    # build renderer + electron main (no packaging)
-pnpm package:linux    # build + electron-builder -> release/*.AppImage / *.deb
+pnpm check:python     # verify server/python/bin/python3 exists (pre-package gate)
+pnpm package:linux    # check:python + build:desktop + electron-builder -> release/*.AppImage (self-contained)
 ```
 
 ---
@@ -175,8 +183,8 @@ app/
 ├── components/
 │   ├── ui/                  # shadcn primitives (auto-generated, do not hand-edit)
 │   ├── Toolbar.tsx          # app name, theme, File menu (New→NewPartDialog, Open→PartsBrowser, workspace), Save, Export menu (STL/OBJ/3MF always; STEP for build123d parts), and a READ-ONLY language badge (locked at creation — the old runtime switcher is gone)
-│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio (count badge removed; replaced by SelectionIndicator at bottom-right); SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay
-│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send
+│   ├── Viewport.tsx         # R3F Canvas; off-thread geometry; imperative camera fit (FitController), view modes (shaded/solid/wireframe), grid+gizmo toggles, Frame btn + F hotkey; top-left badge = "Rendering…" while isRendering else amber "Out of sync"; language-dependent group rotation (-π/2 X for OpenSCAD Z-up, identity for build123d Y-up). SELECT-MODE toolbar (bottom-left, build123d-only): Off/All/Precise + Face/Edge/Vertex radio (count badge removed; replaced by SelectionIndicator at bottom-right); SelectionPicker resolves hover (vertex>edge>face, occluded entities ignored), click toggles into useSelectionStore; vertex dots are drei <Html> screen-space, edges yellow <Line>, faces yellow overlay. **No-tabs empty state:** when `openDocs.length === 0`, renders a `NoTabsHint` overlay with "Open part" (PartsBrowser) and "New part" (NewPartDialog) buttons instead of the usual `EmptyHint`.
+│   ├── ChatPanel.tsx        # message list (native scroll; no avatars — user=right / AI=left text-bubble style, no separators) + composer; SelectionIndicator + image attachments render ABOVE the textarea; mode + model Selects; vision guard strips images on send + red warning; selection clears on send. **No-active-doc state:** when `openDocs.length === 0`, renders a `NoDocChat` call-to-action ("Create a new part to begin" + New part button) instead of messages/example prompts; the textarea, send button, and attach button are disabled with placeholder "Create a new part to start chatting".
 │   ├── ChatMessage.tsx      # memoized; renders text parts + image parts + update_model tool parts (CodeBlock + render status/stderr); restore-event messages render as a centered rounded (rounded-lg) muted pill with a RotateCcw icon (detected via message.kind === "restore")
 │   ├── SelectionIndicator.tsx # Shared popover-based selection summary: pill icon + count → popover with scrollable list (per-row kind icon/label/summary + remove X, "Clear all" footer). Mounted in viewport (bottom-right, variant="overlay") and chat composer. Reads useSelectionStore directly.
 │   ├── CodeBlock.tsx        # read-only code display with copy (used by ChatMessage tool-call cards)
@@ -190,12 +198,14 @@ app/
 │   ├── NewPartDialog.tsx    # creation-time backend chooser (OpenSCAD/Build123D tiles; pre-selects AppSettings.defaultBackend; grays build123d if useCapabilitiesStore says unavailable); drives newTab(language) + setDefaultBackend
 │   ├── ExportDialog.tsx     # Export modal: non-dismissable while exporting (no X, Escape/overlay suppressed); indeterminate Loader2 spinner + filename + live elapsed-seconds counter; driven by useModelStore.exportJob
 │   ├── WorkspaceSetup.tsx   # first-run / change-workspace modal (path input; dismissible only when not first-run)
+│   ├── ProviderSetup.tsx    # non-dismissible first-run API-key dialog (shown after workspace pick when no provider key set); OpenRouter password field + openrouter.ai/keys link; auto-closes once configured===true
+│   ├── SettingsDialog.tsx   # controlled dialog opened from the Toolbar gear icon (before the theme toggle); OpenRouter key field + "Configured/Not set" status pill; Save/Cancel footer
 │   ├── PartsBrowser.tsx     # dialog: list workspace parts, Open / New / Delete
 │   └── RubiksGizmo.tsx      # plain 3x3x3 clickable view-cube gizmo (click any cubie → tween camera to that direction; face-center=axis view, edge/corner=iso); X/Y/Z/-X/-Y/-Z labels on the 6 face-center cubies; sits in drei GizmoHelper
 ├── lib/
 │   ├── utils.ts             # cn() helper (required by shadcn) + sanitizeFileName() + downloadBlob() (blob <a download>, used by export)
 │   ├── ai-chat.tsx          # ChatProvider: useChat({ throttle: 50 }); SPLIT into Actions/Status/State/HasMessages contexts (NOT one whole-object context); transport injects mode/model/cadCode/language/partId/selection
-│   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / restoreRevisionUrl / messagesUrl (derived from VITE_AI_API_URL)
+│   ├── api.ts               # chatApiUrl / meshUrl(id) / topologyUrl(id) / renderUrl / capabilitiesUrl / modelsUrl / partsUrl / partUrl(id) / partMeshUrl(id,blobId) / partTopologyUrl(id,blobId) / exportUrl(id, format, revId?) / revisionsUrl(id) / revisionUrl(id,revId) / restoreRevisionUrl / messagesUrl / providerUrl / providerKeyUrl(name) (derived from VITE_AI_API_URL or app://bundle/api/chat)
 │   ├── images.ts            # image-attach helpers: data-URL + canvas downscale (>1600px), limits (≤4, ≤5MB), buildImageParts/extractImageFiles
 │   ├── mesh-worker.ts       # Web Worker: computeVertexNormals + Ritter bounding sphere (transferable Float32Array)
 │   ├── mesh-worker-client.ts# singleton worker + id-correlated buildMesh() promise
@@ -210,6 +220,7 @@ app/
 │   ├── useModelStore.ts     # mesh (TriangleMesh), topology (Topology|null), cadCode, language, backend, isBuilding, isRendering, isExporting + exportJob {filename,format}|null, setModel (mesh+cadCode+language+topology), setCode (clears mesh+topology), setCadCode (mesh-safe — edits don't clear the viewport), setBuilding, setRendering, clear, exportModel(format, ctx)
 │   ├── useChatModeStore.ts  # ChatMode = "plan" | "chat" | "build" (default "build")
 │   ├── useSettingsStore.ts  # model + defaultBackend + lastOpenDocIds; hydrates from /api/settings, debounced PUT on change
+│   ├── useProvidersStore.ts # activeProvider + providers{openrouter:{configured}}; hydrates from GET /api/provider; setKey() PUTs /api/provider/:name/key; drives the ProviderSetup first-run gate
 │   ├── useCapabilitiesStore.ts # openscad/build123d {ok,version?,error?}; loaded once at boot (GET /api/capabilities); drives NewPartDialog build123d gating
 │   ├── useSelectionStore.ts # selection: TopologySelection[] (multi, no cap); toggle/remove/clear; read by SelectionIndicator + the chat transport; cleared on send/tab-switch/mesh-change
 │   ├── useWorkspaceStore.ts # single workspace root + parts list; init/refresh/setRoot over /api/workspace. **init() retries with backoff** (500ms→1s→2s→4s, ~8s cap) so it survives the dev:all cold-start race where Vite is up before the API server; initialized only flips after success OR retry exhaustion (so the WorkspaceSetup dialog stays hidden during retries and auto-dismisses once :8787 answers)
@@ -218,7 +229,7 @@ app/
 ├── types/
 │   └── index.ts             # ChatMode, TriangleMesh (positions: Float32Array), BackendName, Topology (FaceGroup/EdgeGroup/VertexNode), TopologySelection (kind/id/label/summary), ModelingBackend, etc.
 ├── routes/
-│   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync + useTabChatSync; boots (settings+workspace), reopens ALL last-open tabs (first active, rest background), syncs lastOpenDocIds from openDocs
+│   ├── home.tsx             # the workspace; <Workspace> (inside ChatProvider) calls useModelSync + useTabChatSync; boots (settings+workspace+providers), reopens ALL last-open tabs (first active, rest background), syncs lastOpenDocIds from openDocs; renders the non-dismissible <ProviderSetup/> once workspace is configured but no provider key is set
 │   └── +types/*             # AUTO-GENERATED by react-router typegen (gitignored)
 ├── vite-env.d.ts            # augments ImportMetaEnv with VITE_AI_API_URL
 ├── app.css                  # Tailwind import + shadcn design tokens
@@ -226,11 +237,12 @@ app/
 ```
 
 ```
-server/                       # AI chat backend (TypeScript, runs standalone now)
-├── app.ts                    # Hono app: POST /api/chat (update_model tool, stopWhen: stepCountIs(4) self-correction, MAX_TRIANGLES=500k cap, reads `selection` for the prompt), GET /api/models, /api/mesh/:id (BINARY float32 frame), /api/topology/:id (Topology JSON for a live build), POST /api/render (render arbitrary code → ephemeral meshId, NO revision, HTTP 200+ok:false on compile error), POST /api/parts/:id/revisions (createRevision source:"manual"; renders geometry via the part's LOCKED language), GET /api/parts/:id/meshes/:blobId + /api/parts/:id/topology/:blobId (persisted mesh + topology), GET /api/parts/:id/export/:format (stl|obj|3mf|step; step is build123d-only), PATCH /api/parts/:id → 409 on `language` (immutable), /api/capabilities (openscad + build123d), /api/health
-├── index.ts                  # Node bootstrap only (serve() via @hono/node-server) — standalone entry
-├── env.ts                    # OPENROUTER_* / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH / PYTHON_PATH; assertConfig()
-├── models.ts                 # loads models.config.json, validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId(); exposes supportsVision from architecture.input_modalities
+server/                       # AI chat backend (TypeScript) — embedded in-process by Electron
+├── app.ts                    # Hono app factory: configureServer(credentialStore) wires the key resolver; POST /api/chat (update_model tool, stopWhen: stepCountIs(4), MAX_TRIANGLES=500k cap, reads `selection` for the prompt; returns 401 if no API key set), GET /api/models, /api/mesh/:id (BINARY float32 frame), /api/topology/:id, POST /api/render, POST /api/parts/:id/revisions, GET /api/parts/:id/meshes/:blobId + /api/parts/:id/topology/:blobId, GET /api/parts/:id/export/:format (stl|obj|3mf|step; step build123d-only), PATCH /api/parts/:id → 409 on `language`, /api/capabilities, GET /api/provider (status — never returns key), PUT /api/provider/:name/key (writes via credentialStore), /api/health
+├── index.ts                  # STANDALONE bootstrap only (for `pnpm dev:server`); picks credential store via pickStandaloneCredentialStore() (EnvVar / File-dev), calls configureServer(), then @hono/node-server serve()
+├── credentials.ts            # CredentialStore interface + EnvVarCredentialStore (read-only, OPENROUTER_API_KEY fallback) + FileCredentialStore (dev, CADZ_DEV_CREDENTIALS=1 → ~/.cadzero/dev-credentials.json); SUPPORTED_PROVIDERS=["openrouter"]; describeProviderStatus() for the GET /api/provider payload. Electron's SafeStorageCredentialStore lives in electron/credentials.ts
+├── env.ts                    # openrouterModel / PORT / ALLOWED_ORIGIN / OPENSCAD_PATH / PYTHON_PATH — NO API KEY (removed assertConfig; key now comes from CredentialStore via configureServer)
+├── models.ts                 # imports models.config.json directly (bundled); setKeyResolver(fn) sets the key source; validates ids vs OpenRouter /api/v1/models (5-min cache), resolveModelId()
 ├── models.config.json        # whitelist of selectable model ids + "default" (the UI model picker source)
 ├── backend-types.ts          # BackendName = "openscad" | "build123d"; SUPPORTED_BACKENDS (both)
 ├── system-prompt.ts          # BASE_PROMPTS (per-language: OPENSCAD Z-up, BUILD123D Y-up + `result=` contract) + buildInstructions(mode, cadCode, language, selection) — appends a "User has selected:" block when selection is non-empty; BUILD retry-on-error policy
@@ -238,8 +250,9 @@ server/                       # AI chat backend (TypeScript, runs standalone now
 │   ├── types.ts              # RenderResult { ok; mesh?: TriangleMesh; topology?: Topology | null; stderr; durationMs } / ExportResult { ok; data?; ... }
 │   ├── index.ts              # DISPATCH: renderFor/exportFor(language, code[, ext]) → openscad or build123d
 │   ├── openscad.ts           # renderScad(code)→parses STL internally → {mesh, topology:null}; exportScad(code, ext); checkOpenScad()
-│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d uses worker.tessellate → {mesh, topology}; exportBuild123d; checkBuild123d; resolvePythonBin() = PYTHON_PATH → <cwd>/server/python/bin/python3 → python3
-│   └── build123d_worker.py   # long-lived Python proc: imports build123d/OCP ONCE; reads {"id,code,out_path,format"} lines; `tessellate` mode meshes once (BRepMesh_IncrementalMesh), honors face orientation (REVERSED → swap winding), writes <id>.bin (mesh frame) + <id>.topo.json (Topology: per-face tri ranges + edges + vertices); stl/step/brep via export_*; stray stdout captured; ready handshake
+│   ├── build123d.ts          # persistent Build123DWorker manager: lazy spawn, request/response over stdin/stdout JSON, 30s render timeout→kill+respawn; renderBuild123d uses worker.tessellate → {mesh, topology}; exportBuild123d; checkBuild123d; bundledPythonBin() resolves python via PYTHON_PATH → process.resourcesPath/python-runtime/bin/python3 (packaged) → <cwd>/server/python/bin/python3 (dev) → python3 (system). getWorkerScript() writes the inlined worker to a temp file at first use.
+│   ├── build123d_worker_asset.ts # build123d_worker.py inlined as base64 (survives Vite CJS bundling; import.meta.url doesn't); regen via scripts/sync-build123d-worker.sh
+│   └── build123d_worker.py   # source-of-truth worker script (long-lived Python proc; edits require regenerating build123d_worker_asset.ts)
 ├── renderer/stl.ts           # parseStl(Buffer) -> { positions:number[], triangleCount } (binary + ASCII)
 ├── renderer/topology.ts      # Topology types (FaceGroup/EdgeGroup/VertexNode) + TopologySelection DTO (kind/id/label/summary)
 ├── mesh-store.ts             # ephemeral Map<meshId, {mesh, topology}> (LRU, capped 64); storeMesh/getMesh/getTopology
@@ -256,9 +269,10 @@ server/                       # AI chat backend (TypeScript, runs standalone now
 
 ```
 electron/                    # Electron main process (Node side, NOT the React app)
-├── main.ts                  # BrowserWindow, app:// protocol (serves renderer + PROXIES /api/* to the backend), dev-vs-packaged loading
+├── main.ts                  # BrowserWindow, app:// protocol (serves renderer + proxies /api/* to the in-process Hono server on 127.0.0.1:8787), **embeds the Hono server in-process** (startEmbeddedBackend / stopEmbeddedBackend), single-instance lock, before-quit shutdown; dev loads :5173, packaged loads `app://bundle/` (NOT /index.html — RR index route only matches pathname `/`)
+├── credentials.ts           # SafeStorageCredentialStore — encrypts API keys via electron safeStorage → base64 in ~/.cadzero/credentials.json; plaintext fallback with console warning when safeStorage.isEncryptionAvailable() === false
 ├── preload.ts               # contextBridge stub (contextIsolation-safe) exposes { isElectron }
-└── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS)
+└── vite.config.ts           # bundles main+preload -> dist-electron/*.cjs (CommonJS); externals electron + node builtins + server runtime deps (hono, @hono/node-server, ai, zod, @openrouter/ai-sdk-provider, better-sqlite3) so they're loaded from node_modules at runtime
 ```
 
 `dist-electron/` and `release/` are build outputs (gitignored). The renderer
@@ -507,6 +521,7 @@ exact same SPA as the web app — Electron just loads it.
   collapses role to `user|assistant` and the server's message PUT filters roles
   to those two, so a `system` role would be dropped; that's why the note is
   `user`-role with a UI marker instead.
+- **No-tabs empty state guides the user to create a part.** When all tabs are closed (`openDocs.length === 0`), the viewport shows a `NoTabsHint` with "Open part" / "New part" buttons, and the chat panel shows a `NoDocChat` call-to-action with a disabled textarea. This forces the user through `NewPartDialog` → backend choice → new tab before chatting.
 - **No comments in code** unless explicitly requested (house style).
 
 ---
@@ -741,19 +756,59 @@ successful render.
 - **`main` field** in package.json is `dist-electron/main.cjs` — that's what
   `electron .` and the packaged app execute.
 - **The desktop app proxies `/api/*` to the backend (no CORS).** The `app://`
-  protocol handler in `electron/main.ts` now routes any `app://bundle/api/…`
-  request to the running backend (`http://localhost:8787` by default, override
-  with `ELECTRON_BACKEND_URL`), forwarding method/content-type/body and adding
-  `Access-Control-Allow-Origin: *`. The renderer detects Electron
-  (`window.electronAPI.isElectron`, set by the preload) and uses
-  `app://bundle/api` as its API base in `app/lib/api.ts` — so all fetches are
-  same-origin to the protocol and never hit browser CORS. The `app` scheme is
-  registered with `corsEnabled: true`. This fixes the "can't reach backend /
-  stuck save spinner" in the Electron shell.
-- **The desktop app still needs the backend running as a separate process**
-  (`pnpm dev:server`) — the proxy forwards to it; it does not embed it. So in
-  the packaged Electron app you must run the server too (embedding the Hono
-  `app` in-process is still the self-containment prerequisite).
+  protocol handler in `electron/main.ts` routes any `app://bundle/api/…` request
+  to the in-process Hono server on `127.0.0.1:8787`, forwarding
+  method/content-type/body and adding `Access-Control-Allow-Origin: *`. The
+  renderer detects Electron (`window.electronAPI.isElectron`, set by the preload)
+  and uses `app://bundle/api` as its API base in `app/lib/api.ts` — so all
+  fetches are same-origin to the protocol and never hit browser CORS. The `app`
+  scheme is registered with `corsEnabled: true`.
+- **The Hono backend runs IN-PROCESS inside Electron main** (no separate
+  `pnpm dev:server` needed for the packaged app). `startEmbeddedBackend()` in
+  `electron/main.ts` calls `configureServer(new SafeStorageCredentialStore())`
+  then `@hono/node-server`'s `serve({ fetch: app.fetch, port: 8787, hostname:
+  "127.0.0.1" })` inside the main process — one process, one port, no IPC for
+  data. The `app://` proxy forwards to it as before. A single-instance lock
+  (`app.requestSingleInstanceLock()`) prevents two copies fighting for the port.
+  `before-quit` closes the HTTP server cleanly (calls `app.quit()` again after
+  `close()` resolves — the guard is `if (backendServer)` so it doesn't loop).
+  Standalone dev (`pnpm dev:server`) still works for web-only development.
+- **Packaged app loads `app://bundle/`, NOT `app://bundle/index.html`.** The
+  React Router index route only matches pathname `/`; loading `/index.html`
+  yields pathname `/index.html` → no route match → the `ErrorBoundary` in
+  `root.tsx` fires with a 404 ("The requested page could not be found."). The
+  protocol handler serves the same `index.html` for `/` (via the SPA fallback),
+  so the only change is the load URL.
+- **API keys are encrypted via Electron `safeStorage`.** The
+  `SafeStorageCredentialStore` (`electron/credentials.ts`) calls
+  `safeStorage.encryptString()` / `decryptString()` and stores the base64
+  result under `providers.<name>.apiKey` in `~/.cadzero/credentials.json`. If
+  `safeStorage.isEncryptionAvailable()` returns false (e.g. headless Linux
+  without libsecret/gnome-keyring), it falls back to **plaintext with a console
+  warning** (so the app still works). The server never sees the file directly —
+  Electron main decrypts in memory and hands plaintext to the in-process Hono
+  app via `configureServer(store)` → `setKeyResolver(() =>
+  store.get("openrouter"))`. New endpoints: `GET /api/provider` (status only,
+  never the key) and `PUT /api/provider/:name/key` (writes via the store).
+  Standalone dev uses `EnvVarCredentialStore` (read-only `OPENROUTER_API_KEY`)
+  or `FileCredentialStore` (plaintext, when `CADZ_DEV_CREDENTIALS=1`).
+- **Build123D Python runtime is bundled as `extraResources`.** The full CPython
+  3.12 + build123d + OCP (~1.1 GB on disk, but AppImage squashfs compresses it
+  to ~300 MB) ships at `resources/python-runtime/` alongside `app.asar`.
+  `bundledPythonBin()` in `server/backends/build123d.ts` resolves:
+  `PYTHON_PATH` env → `process.resourcesPath/python-runtime/bin/python3`
+  (packaged) → `<cwd>/server/python/bin/python3` (dev) → system `python3`.
+  The worker script (`build123d_worker.py`) is **inlined as base64** in
+  `build123d_worker_asset.ts` and written to a temp file at first use (the
+  `new URL("./build123d_worker.py", import.meta.url)` pattern broke under Vite
+  CJS bundling — `import.meta.url` became `"" + {}.url` = `"undefined"`).
+  Regenerate the asset after editing the worker:
+  `scripts/sync-build123d-worker.sh`. The `pnpm check:python` gate refuses to
+  package without the runtime (`pnpm setup:python` first).
+- **`models.config.json` is imported directly, not file-read.** The old
+  `fileURLToPath(import.meta.url)` lookup broke for the same CJS reason. Now a
+  static `import modelsConfigJson from "./models.config.json"` (bundled inline,
+  `resolveJsonModule: true`).
 
 ---
 
@@ -844,12 +899,31 @@ It errors out without `version`, and the **`.deb`** target (via the bundled
 `https://example.com` — replace with the real repo/site before a public
 release.)
 
-### 14. `.deb` build needs `libcrypt.so.1` on the host
+### 14. `.deb` target was dropped (AppImage only)
 electron-builder's bundled `fpm` is a Ruby binary; that Ruby fails with
-`cannot open shared object file: libcrypt.so.1` on minimal/Fedora hosts.
-**AppImage builds fine without it.** For `.deb`, install the lib once:
-`sudo dnf install libxcrypt-compat` (Fedora) / `sudo apt install libcrypt1`
-(Debian).
+`cannot open shared object file: libcrypt.so.1` on minimal/Fedora hosts, and
+Fedora 44 stopped shipping `libcrypt.so.1` by default. **AppImage builds fine
+without it** and is the only target we ship. To re-enable `.deb`, install the
+lib once (`sudo dnf install libxcrypt-compat`) and add `"deb"` back to the
+`linux.target` array in `package.json`.
+
+### 16. Vite CJS lib mode breaks `new URL("./asset", import.meta.url)` — inline instead
+The electron main bundle is built with `lib: { formats: ["cjs"] }` (sandboxed
+preload requires CJS). In this mode Vite replaces `import.meta.url` with `"" +
+{}.url` (= `"undefined"`), so any `new URL("./foo", import.meta.url)` or
+`fileURLToPath(import.meta.url)` call throws `TypeError: Invalid URL` at module
+load. **Two patterns hit this:**
+- `server/backends/build123d.ts`'s `WORKER_SCRIPT` path resolution → fixed by
+  inlining the `.py` as base64 in `build123d_worker_asset.ts` and writing it to
+  a temp file at first use (`getWorkerScript()`).
+- `server/models.ts`'s `__dirname`/`CONFIG_PATH` lookup → fixed by switching to
+  a direct `import modelsConfigJson from "./models.config.json"` (bundled
+  inline via `resolveJsonMode: true`).
+Anything new that needs a file path inside the bundle must use `app.getAppPath()`
+/ `process.resourcesPath` (for `extraResources`), not `import.meta.url`.
+`electron/vite.config.ts` also externals the server runtime deps
+(`hono`, `@hono/node-server`, `ai`, `zod`, `@openrouter/ai-sdk-provider`,
+`better-sqlite3`) so they load from `node_modules` at runtime.
 
 ### 15. Web Workers under Vite + RR + Electron (and the typing trick)
 We use the standard Vite pattern: `new Worker(new URL("./mesh-worker.ts",
@@ -969,6 +1043,8 @@ import.meta.url), { type: "module" })`. Vite emits the worker as its own chunk
 | Storage: PDM revision browser + restore | **LIVE** — History tab lists revisions (cached-mesh preview is instant); version numbers (`v1`…`vN`) replace per-source icons; **native scroll** (not Radix ScrollArea — fixes right-edge cutoff); "current" badge stays fresh (`useModelSync` patches `meta.headRevId` on same-part builds); restore = forward-fork (reuses source mesh) **+ injects a restore note into chat** (AI context + centered pill in the UI); read-only preview disables build |
 | Storage: multi-part tabs + swap-on-activate chat | **LIVE** — openDocs[] + TabBar; single useChat swapped per active tab (mesh kept warm, instant re-render); reopen all last-open tabs on launch; switch/close disabled while busy (FIFO cap 8) |
 | Storage: chat disk persistence (`/api/parts/:id/messages`) | **LIVE** — per-tab conversation survives reload (lazy-loaded on tab activate); full UIMessage JSON in `parts_json`, linear `parent_msg_id` chain, `produced_rev_id` links chat↔revision; debounced persist + flush-on-switch + beforeunload |
+| Provider API-key flow (`/api/provider`, safeStorage) | **LIVE** — first-run non-dismissible `ProviderSetup` dialog after workspace pick; `SettingsDialog` (gear icon, before theme toggle) to view/change the key; `SafeStorageCredentialStore` encrypts via OS keychain (plaintext fallback on headless Linux); `GET /api/provider` returns only `{configured: boolean}` (never the key); `/api/chat` returns 401 with a clear hint when no key is set |
+| Self-contained desktop app (in-process server + bundled Python) | **LIVE** — Hono runs inside Electron main on 127.0.0.1:8787 (no separate process); CPython 3.12 + build123d + OCP bundled as `extraResources/python-runtime/`; single-instance lock; `pnpm package:linux` → `release/*.AppImage` (~465 MB) |
 | Storage: chat forking UI (branch switcher / fork-from-here) | **Deferred** — DAG columns already populated (linear), so branching is a pure client add-on later (no migration) |
 
 The tool result (`BackendResult`-shaped) is what drives the viewport via
@@ -987,9 +1063,14 @@ The tool result (`BackendResult`-shaped) is what drives the viewport via
    kernel like FreeCAD/OpenCASCADE).
 3. **Real WebSocket transport** replacing `DummyWebSocketClient` (for CAD
    progress / long renders), or keep HTTP streaming for everything.
-4. Embed the Hono backend in Electron's main process (import `app` from
-   `server/app.ts`, call `serve()` in-process) so the desktop app is
-   self-contained.
+4. **Embed the Hono backend in Electron's main process — ✅ DONE.** The desktop
+   app is now self-contained: `electron/main.ts` calls `serve()` in-process on
+   `127.0.0.1:8787`, `configureServer()` wires the `SafeStorageCredentialStore`,
+   single-instance lock + clean `before-quit` shutdown. The Build123D Python
+   runtime ships as `extraResources/python-runtime/`. `pnpm package:linux`
+   produces a single `release/*.AppImage` (~465 MB) with no external
+   dependencies (openscad still needs to be on the host's PATH for OpenSCAD
+   parts; Build123D is fully bundled).
 5. **Storage / persistence — in progress (Phase plan):**
    - **Phase 0 ✅ DONE** — `.cadz` SQLite container (`server/storage/`), workspace
      root, and `/api/settings` are live. Part-domain functions exist (create/list/

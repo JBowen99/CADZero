@@ -79,7 +79,7 @@ export function NewPartDialog() {
               !capsLoaded
                 ? "Checking runtime…"
                 : build123d.error ??
-                  "Run `pnpm setup:python` to enable Build123D."
+                  "Build123D needs Python 3 with build123d installed (pip install build123d)"
             }
             onSelect={() => setSelected("build123d")}
           />

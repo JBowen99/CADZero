@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileBox, FolderTree, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
@@ -62,9 +61,9 @@ export function WorkspaceTree() {
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-72 p-0"
+        className="flex max-h-96 w-72 flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
           <FolderTree className="size-4 text-muted-foreground" />
           <span className="truncate text-sm font-medium">{label}</span>
           <span className="ml-auto text-[11px] text-muted-foreground">
@@ -72,7 +71,7 @@ export function WorkspaceTree() {
           </span>
         </div>
 
-        <ScrollArea className="max-h-80">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {parts.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               No parts in this workspace yet.
@@ -110,7 +109,7 @@ export function WorkspaceTree() {
               })}
             </ul>
           )}
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );

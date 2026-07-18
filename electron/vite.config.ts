@@ -2,6 +2,16 @@ import { defineConfig } from "vite";
 import { builtinModules } from "node:module";
 import { fileURLToPath } from "node:url";
 
+const serverRuntimeExternals = [
+  "hono",
+  "hono/cors",
+  "@hono/node-server",
+  "@openrouter/ai-sdk-provider",
+  "ai",
+  "zod",
+  "better-sqlite3",
+];
+
 export default defineConfig({
   build: {
     outDir: "dist-electron",
@@ -21,6 +31,7 @@ export default defineConfig({
       external: [
         "electron",
         ...builtinModules.flatMap((m) => [m, `node:${m}`]),
+        ...serverRuntimeExternals,
       ],
     },
   },
