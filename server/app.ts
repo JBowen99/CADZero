@@ -23,6 +23,7 @@ import type { BackendName } from "./backend-types";
 import { checkOpenScad } from "./backends/openscad";
 import { checkBuild123d } from "./backends/build123d";
 import { exportFor, renderFor } from "./backends";
+import { exportBuild123dFace } from "./backends/build123d";
 import type { Topology, TopologySelection } from "./renderer/topology";
 import { storeMesh, getMesh, getTopology } from "./mesh-store";
 import { listAvailableModels, resolveModelId, setKeyResolver } from "./models";
@@ -83,6 +84,13 @@ const EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
   "3mf": { ext: "3mf", mime: "model/3mf" },
   step: { ext: "step", mime: "application/step" },
 };
+
+const FACE_EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
+  svg: { ext: "svg", mime: "image/svg+xml" },
+  dxf: { ext: "dxf", mime: "image/vnd.dxf" },
+};
+
+const FACE_ID_PATTERN = /^f\d+$/;
 
 function sanitizeFileName(name: string): string {
   const cleaned = name.trim().replace(/[^\w\-.]+/g, "_").replace(/_+/g, "_");
@@ -339,6 +347,61 @@ app.get("/api/parts/:id/export/:format", async (c) => {
 
   const meta = getPart(root, partId);
   const filename = `${sanitizeFileName(meta?.name ?? "model")}.${spec.ext}`;
+  return c.body(new Uint8Array(rendered.data), 200, {
+    "Content-Type": spec.mime,
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+});
+
+app.get("/api/parts/:id/faces/:faceId/export/:format", async (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const partId = c.req.param("id");
+  const faceId = c.req.param("faceId");
+  const format = c.req.param("format").toLowerCase();
+  const spec = FACE_EXPORT_FORMATS[format];
+  if (!spec) {
+    return c.json({ error: `unsupported face export format: ${format}` }, 400);
+  }
+  if (!FACE_ID_PATTERN.test(faceId)) {
+    return c.json({ error: `invalid face id: ${faceId}` }, 400);
+  }
+
+  const revId = c.req.query("revId");
+  let code: string | null = null;
+  let exportLanguage: BackendName = "openscad";
+  if (revId) {
+    const rev = getRevision(root, partId, revId);
+    code = rev?.code ?? null;
+    exportLanguage = rev?.language ?? "openscad";
+  } else {
+    const head = getHeadWithMesh(root, partId);
+    code = head?.code ?? null;
+    exportLanguage = head?.language ?? "openscad";
+  }
+  if (!code) {
+    return c.json({ error: "part has no code to export" }, 400);
+  }
+  if (exportLanguage !== "build123d") {
+    return c.json(
+      { error: "Face export requires a Build123D part (B-rep kernel)." },
+      400,
+    );
+  }
+
+  const rendered = await exportBuild123dFace(code, faceId, spec.ext);
+  if (!rendered.ok || !rendered.data) {
+    return c.json(
+      {
+        error: "face export failed",
+        stderr: rendered.stderr || "unknown error",
+      },
+      400,
+    );
+  }
+
+  const meta = getPart(root, partId);
+  const filename = `${sanitizeFileName(meta?.name ?? "model")}-Face_${faceId}.${spec.ext}`;
   return c.body(new Uint8Array(rendered.data), 200, {
     "Content-Type": spec.mime,
     "Content-Disposition": `attachment; filename="${filename}"`,

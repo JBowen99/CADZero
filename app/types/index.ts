@@ -2,6 +2,8 @@ export type BackendName = "openscad" | "build123d";
 
 export type ExportFormat = "stl" | "obj" | "3mf" | "step";
 
+export type FaceExportFormat = "svg" | "dxf";
+
 export type MessageRole = "user" | "assistant";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -73,7 +75,7 @@ export interface BackendResult {
 }
 
 export interface ExportResult {
-  format: ExportFormat;
+  format: ExportFormat | FaceExportFormat;
   sizeBytes: number;
   filename: string;
 }

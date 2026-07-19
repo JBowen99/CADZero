@@ -36,6 +36,15 @@ export const exportUrl = (
   `${API_BASE}/parts/${id}/export/${format}${
     revId ? `?revId=${encodeURIComponent(revId)}` : ""
   }`;
+export const exportFaceUrl = (
+  id: string,
+  faceId: string,
+  format: string,
+  revId?: string | null,
+) =>
+  `${API_BASE}/parts/${id}/faces/${encodeURIComponent(faceId)}/export/${format}${
+    revId ? `?revId=${encodeURIComponent(revId)}` : ""
+  }`;
 export const revisionsUrl = (id: string) => `${partUrl(id)}/revisions`;
 export const revisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}`;

@@ -185,7 +185,12 @@ class Build123DWorker {
     await this.spawn();
   }
 
-  async request(code: string, outExt: string, timeoutMs: number): Promise<Buffer> {
+  async request(
+    code: string,
+    outExt: string,
+    timeoutMs: number,
+    faceId?: string,
+  ): Promise<Buffer> {
     await this.ensure();
     if (!this.proc || !this.proc.stdin) {
       throw new Error("Build123D worker is not running.");
@@ -194,7 +199,13 @@ class Build123DWorker {
     await mkdir(dir, { recursive: true });
     const id = randomUUID();
     const outPath = join(dir, `${id}.${outExt}`);
-    const req = JSON.stringify({ id, code, out_path: outPath, format: outExt });
+    const req = JSON.stringify({
+      id,
+      code,
+      out_path: outPath,
+      format: outExt,
+      ...(faceId ? { face_id: faceId } : {}),
+    });
 
     const result = await new Promise<WorkerResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -305,6 +316,24 @@ export async function exportBuild123d(
   const start = Date.now();
   try {
     const data = await worker.request(code, ext, EXPORT_TIMEOUT_MS);
+    return { ok: true, data, stderr: "", durationMs: Date.now() - start };
+  } catch (e) {
+    return {
+      ok: false,
+      stderr: (e as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+export async function exportBuild123dFace(
+  code: string,
+  faceId: string,
+  ext: string,
+): Promise<ExportResult> {
+  const start = Date.now();
+  try {
+    const data = await worker.request(code, ext, EXPORT_TIMEOUT_MS, faceId);
     return { ok: true, data, stderr: "", durationMs: Date.now() - start };
   } catch (e) {
     return {

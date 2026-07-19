@@ -25,9 +25,13 @@ import build123d
 from build123d import Compound, Shape, export_brep, export_step, export_stl
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRep import BRep_Tool
-from OCP.TopAbs import TopAbs_REVERSED
+from OCP.TopAbs import TopAbs_REVERSED, TopAbs_WIRE
 from OCP.TopLoc import TopLoc_Location
-from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.TopExp import TopExp_Explorer
+from OCP.TopoDS import TopoDS
+from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+from OCP.BRepTools import BRepTools_WireExplorer
+from OCP.GeomAbs import GeomAbs_Plane
 from OCP.GCPnts import GCPnts_TangentialDeflection
 
 LINEAR_DEFLECTION = 0.1
@@ -158,10 +162,142 @@ def tessellate(result, out_path):
         )
 
 
+def _parse_face_index(face_id):
+    """Parse a face id of the form 'f<N>' into an integer index."""
+    if not isinstance(face_id, str) or not face_id.startswith("f"):
+        raise ValueError("face_id must look like 'f<N>' (got %r)." % (face_id,))
+    try:
+        return int(face_id[1:])
+    except ValueError:
+        raise ValueError("face_id must look like 'f<N>' (got %r)." % (face_id,))
+
+
+def export_face_2d(result, face_id, out_path, fmt):
+    """Export a single planar face's boundary to a 2D vector format (svg/dxf).
+
+    Walks the face's wires (outer boundary + any holes) in order, discretizes
+    each edge into a polyline, and projects the 3D points onto the face's
+    plane using its local UV axes.
+    """
+    idx = _parse_face_index(face_id)
+    faces_list = result.faces()
+    n_faces = len(faces_list)
+    if idx < 0 or idx >= n_faces:
+        raise ValueError(
+            "Face %s does not exist (the part has %d faces)." % (face_id, n_faces)
+        )
+    face = faces_list[idx]
+
+    adaptor = BRepAdaptor_Surface(face.wrapped, True)
+    if adaptor.GetType() != GeomAbs_Plane:
+        raise ValueError(
+            "Face %s is not planar; SVG/DXF export requires a flat face." % face_id
+        )
+    pln = adaptor.Plane()
+    origin = pln.Location()
+    ox, oy, oz = origin.X(), origin.Y(), origin.Z()
+    xdir = pln.XAxis().Direction()
+    ydir = pln.YAxis().Direction()
+    xu, xv, xw = xdir.X(), xdir.Y(), xdir.Z()
+    yu, yv, yw = ydir.X(), ydir.Y(), ydir.Z()
+
+    def project(p):
+        dx, dy, dz = p.X() - ox, p.Y() - oy, p.Z() - oz
+        return (dx * xu + dy * xv + dz * xw, dx * yu + dy * yv + dz * yw)
+
+    loops_2d = []
+    wire_exp = TopExp_Explorer(face.wrapped, TopAbs_WIRE)
+    while wire_exp.More():
+        wire = TopoDS.Wire_s(wire_exp.Current())
+        loop = []
+        we = BRepTools_WireExplorer()
+        we.Init(wire, face.wrapped)
+        while we.More():
+            edge = we.Current()
+            edge_pts = []
+            curve = BRepAdaptor_Curve(edge)
+            sampler = GCPnts_TangentialDeflection(
+                curve, LINEAR_DEFLECTION, ANGULAR_DEFLECTION
+            )
+            n_pts = sampler.NbPoints()
+            for i in range(1, n_pts + 1):
+                edge_pts.append(project(sampler.Value(i)))
+            # Edges have their own orientation; flip REVERSED edges so the
+            # sampled direction matches the wire traversal direction.
+            if edge.Orientation() == TopAbs_REVERSED:
+                edge_pts.reverse()
+            loop.extend(edge_pts)
+            we.Next()
+        if len(loop) >= 2:
+            loops_2d.append(loop)
+        wire_exp.Next()
+
+    if not loops_2d:
+        raise ValueError("Face %s has no boundary." % face_id)
+
+    if fmt == "svg":
+        _write_face_svg(loops_2d, out_path)
+    else:
+        _write_face_dxf(loops_2d, out_path)
+
+
+def _write_face_svg(loops_2d, out_path):
+    xs = [p[0] for loop in loops_2d for p in loop]
+    ys = [p[1] for loop in loops_2d for p in loop]
+    minx, maxx = min(xs), max(xs)
+    miny, maxy = min(ys), max(ys)
+    width = max(maxx - minx, 1e-6)
+    height = max(maxy - miny, 1e-6)
+    pad = max(width, height) * 0.02 + 0.5
+
+    def xform(p):
+        u, v = p
+        return ((u - minx) + pad, (maxy - v) + pad)
+
+    body = []
+    for loop in loops_2d:
+        if len(loop) < 2:
+            continue
+        pts = " ".join("%.4f,%.4f" % xform(p) for p in loop)
+        body.append(
+            '<polygon points="%s" fill="none" stroke="black" stroke-width="0.4"/>'
+            % pts
+        )
+
+    total_w = width + 2 * pad
+    total_h = height + 2 * pad
+    svg = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'width="%gmm" height="%gmm" viewBox="0 0 %g %g">\n'
+        "%s\n</svg>\n"
+    ) % (total_w, total_h, total_w, total_h, "\n".join(body))
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(svg)
+
+
+def _write_face_dxf(loops_2d, out_path):
+    import ezdxf
+
+    doc = ezdxf.new("R2010")
+    msp = doc.modelspace()
+    for loop in loops_2d:
+        if len(loop) < 2:
+            continue
+        first = loop[0]
+        last = loop[-1]
+        closed = abs(first[0] - last[0]) < 1e-4 and abs(first[1] - last[1]) < 1e-4
+        pts = loop[:-1] if closed else loop
+        msp.add_lwpolyline(pts, close=closed)
+    doc.saveas(out_path)
+
+
 def run_request(req):
     code = req.get("code", "")
     out_path = req["out_path"]
     fmt = str(req.get("format", "stl")).lower()
+    face_id = req.get("face_id")
 
     namespace = {"__name__": "__main__", "__file__": out_path}
     real_stdout = sys.stdout
@@ -202,6 +338,13 @@ def run_request(req):
         export_step(result, out_path)
     elif fmt == "brep":
         export_brep(result, out_path)
+    elif fmt in ("svg", "dxf"):
+        if not face_id:
+            return {
+                "ok": False,
+                "error": "ERROR: face_id is required for %s export." % fmt,
+            }
+        export_face_2d(result, face_id, out_path, fmt)
     else:
         return {"ok": False, "error": "ERROR: unsupported export format '%s'." % fmt}
 
