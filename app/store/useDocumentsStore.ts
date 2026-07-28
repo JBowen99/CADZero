@@ -691,8 +691,12 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         const out = (await res.json().catch(() => null)) as {
           ok?: boolean;
           meshId?: string;
+          stderr?: string;
         } | null;
-        if (!out?.ok?.toString() || !out.meshId) return;
+        if (!out?.ok || !out.meshId) {
+          console.error("[previewOp] render failed", out?.stderr);
+          return;
+        }
         const meshRes = await fetch(meshUrl(out.meshId));
         if (!meshRes.ok) return;
         const mesh = await decodeMesh(meshRes);

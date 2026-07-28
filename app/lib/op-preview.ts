@@ -9,10 +9,28 @@ export function buildPreviewCode(
   return null;
 }
 
+function findModuleName(lines: string[], opLine: number): { name: string; line: number } | null {
+  if (opLine >= 0 && opLine < lines.length) {
+    const m = /module\s+(\w+)/.exec(lines[opLine]);
+    if (m) return { name: m[1], line: opLine };
+  }
+  for (let i = opLine + 1; i < Math.min(opLine + 3, lines.length); i++) {
+    const m = /module\s+(\w+)/.exec(lines[i]);
+    if (m) return { name: m[1], line: i };
+  }
+  for (let i = opLine; i >= 0; i--) {
+    const m = /module\s+(\w+)/.exec(lines[i]);
+    if (m) return { name: m[1], line: i };
+  }
+  return null;
+}
+
 function buildScadPreviewCode(code: string, op: OpNode): string | null {
-  if (!op.moduleName) return null;
   const lines = code.split("\n");
-  const kept = lines.slice(0, op.line + 1);
+  const found = findModuleName(lines, op.line);
+  if (!found) return null;
+
+  const kept = lines.slice(0, found.line + 1);
 
   while (kept.length > 0) {
     const last = kept[kept.length - 1].trim();
@@ -27,6 +45,6 @@ function buildScadPreviewCode(code: string, op: OpNode): string | null {
     break;
   }
 
-  kept.push("", `${op.moduleName}();`);
+  kept.push("", `${found.name}();`);
   return kept.join("\n");
 }
