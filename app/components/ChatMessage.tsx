@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { AssistantStatusMessage } from "~/components/AssistantStatusMessage";
 import { CodeBlock } from "~/components/CodeBlock";
 import { MessageSelectionContext } from "~/components/MessageSelectionContext";
+import { MessageMeasurementContext } from "~/components/MessageMeasurementContext";
 import { cn } from "~/lib/utils";
 import type { ChatMessageMetadata } from "~/types";
 
@@ -120,6 +121,8 @@ function ChatMessageBase({ message }: ChatMessageProps) {
     .join("");
   const selection =
     (message.metadata as ChatMessageMetadata | undefined)?.selection ?? [];
+  const measurements =
+    (message.metadata as ChatMessageMetadata | undefined)?.measurements ?? [];
 
   if (isRestoreEvent) {
     return (
@@ -155,6 +158,9 @@ function ChatMessageBase({ message }: ChatMessageProps) {
       >
         {isUser && selection.length > 0 && (
           <MessageSelectionContext selection={selection} />
+        )}
+        {isUser && measurements.length > 0 && (
+          <MessageMeasurementContext measurements={measurements} />
         )}
         {text && (
           <div

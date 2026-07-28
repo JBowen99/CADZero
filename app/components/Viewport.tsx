@@ -17,13 +17,16 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, Disc, FilePlus2, FolderOpen, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, Slash, Square, Target, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, Disc, FilePlus2, FolderOpen, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, Ruler, Slash, Square, Target, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { RubiksGizmo } from "~/components/RubiksGizmo";
 import { SelectionIndicator } from "~/components/SelectionIndicator";
 import { PartsBrowser } from "~/components/PartsBrowser";
+import { MeasurePanel } from "~/components/MeasurePanel";
+import { MeasureAnnotations } from "~/components/MeasureAnnotations";
+import { MeasureContextIndicator } from "~/components/MeasureContextIndicator";
 import {
   Tooltip,
   TooltipContent,
@@ -32,9 +35,10 @@ import {
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useSelectionStore } from "~/store/useSelectionStore";
+import { useMeasureStore } from "~/store/useMeasureStore";
 import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
-import type { BackendName, FaceGroup, Topology, TopologySelection } from "~/types";
+import type { BackendName, FaceGroup, MeasurePick, MeasureResult, Topology, TopologySelection } from "~/types";
 
 const OPENSCAD_UP_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
 const IDENTITY_ROTATION: [number, number, number] = [0, 0, 0];
@@ -651,6 +655,11 @@ function Scene({
   preciseKind,
   selection,
   onToggleSelection,
+  measureActive,
+  measurePicks,
+  measureResults,
+  contextHoverPicks,
+  contextHoverResults,
 }: {
   geometry: THREE.BufferGeometry | null;
   edgePositions: Float32Array | null;
@@ -669,6 +678,11 @@ function Scene({
   preciseKind: SelectKind;
   selection: TopologySelection[];
   onToggleSelection: (sel: TopologySelection) => void;
+  measureActive: boolean;
+  measurePicks: MeasurePick[];
+  measureResults: MeasureResult[];
+  contextHoverPicks: MeasurePick[];
+  contextHoverResults: MeasureResult[];
 }) {
   const meshRef = useRef<THREE.Mesh | null>(null);
   const edgesRef = useRef<THREE.BufferGeometry | null>(null);
@@ -686,14 +700,13 @@ function Scene({
 
   return (
     <>
-      <ambientLight intensity={0.6} />
+      <ambientLight intensity={1.0} />
       <directionalLight
         position={[80, 120, 60]}
-        intensity={1.1}
+        intensity={0.5}
         castShadow
         shadow-mapSize={[1024, 1024]}
       />
-      <directionalLight position={[-60, 40, -80]} intensity={0.3} />
 
       <Bounds margin={1.2}>
         <FitController
@@ -720,8 +733,8 @@ function Scene({
                 >
                   <meshStandardMaterial
                     color="#d4d4d8"
-                    metalness={0.1}
-                    roughness={0.5}
+                    metalness={0}
+                    roughness={0.95}
                     polygonOffset={viewMode === "solid"}
                     polygonOffsetFactor={1}
                     polygonOffsetUnits={1}
@@ -742,6 +755,22 @@ function Scene({
                   preciseKind={preciseKind}
                   selection={selection}
                   onToggle={onToggleSelection}
+                />
+              )}
+              {geometry && topology && measureActive && (
+                <MeasureAnnotations
+                  geometry={geometry}
+                  topology={topology}
+                  picks={measurePicks}
+                  results={measureResults}
+                />
+              )}
+              {geometry && topology && contextHoverPicks.length > 0 && (
+                <MeasureAnnotations
+                  geometry={geometry}
+                  topology={topology}
+                  picks={contextHoverPicks}
+                  results={contextHoverResults}
                 />
               )}
             </group>
@@ -873,6 +902,15 @@ export function Viewport() {
   const selection = useSelectionStore((s) => s.selection);
   const toggleSelection = useSelectionStore((s) => s.toggle);
   const clearSelection = useSelectionStore((s) => s.clear);
+  const measureActive = useMeasureStore((s) => s.active);
+  const measurePicks = useMeasureStore((s) => s.picks);
+  const measureResults = useMeasureStore((s) => s.results);
+  const hoveredContextIndex = useMeasureStore((s) => s.hoveredContextIndex);
+  const contextResults = useMeasureStore((s) => s.contextResults);
+  const setMeasureActive = useMeasureStore((s) => s.setActive);
+  const clearMeasure = useMeasureStore((s) => s.clear);
+  const clearMeasureContext = useMeasureStore((s) => s.clearContext);
+  const measurePick = useMeasureStore((s) => s.pick);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
@@ -882,6 +920,23 @@ export function Viewport() {
     return !!d?.mesh && d.cadCode !== (d.meshCode ?? "");
   });
   const restoreWithNote = useRestoreWithNote();
+
+  // Compute picks + results for the hovered context measurement (chat popover hover).
+  const contextHover = useMemo(() => {
+    if (hoveredContextIndex === null || !contextResults[hoveredContextIndex]) {
+      return null;
+    }
+    const r = contextResults[hoveredContextIndex];
+    const picks: MeasurePick[] =
+      r.kind === "single"
+        ? [{ kind: r.entity.kind, id: r.entity.id }]
+        : [
+            { kind: r.pair.a.kind, id: r.pair.a.id },
+            { kind: r.pair.b.kind, id: r.pair.b.id },
+          ];
+    return { picks, results: [r] };
+  }, [hoveredContextIndex, contextResults]);
+
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [edgePositions, setEdgePositions] = useState<Float32Array | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -890,7 +945,11 @@ export function Viewport() {
   const frameRef = useRef<(() => void) | null>(null);
   const interactingRef = useRef(false);
   const [viewMode, setViewMode] = useState<ViewMode>("shaded");
-  const [selectMode, setSelectMode] = useState<SelectMode>("off");
+  const [interactMode, setInteractMode] = useState<
+    "orbit" | "all" | "precise" | "measure"
+  >("orbit");
+  const selectMode: SelectMode =
+    interactMode === "orbit" ? "off" : interactMode === "precise" ? "precise" : "all";
   const [preciseKind, setPreciseKind] = useState<SelectKind>("face");
   const [showGrid, setShowGrid] = useState(true);
   const [showGizmo, setShowGizmo] = useState(true);
@@ -903,23 +962,40 @@ export function Viewport() {
   const canSelect = !!topology;
 
   useEffect(() => {
-    if (!canSelect && selectMode !== "off") setSelectMode("off");
-  }, [canSelect, selectMode]);
+    if (!canSelect && interactMode !== "orbit") setInteractMode("orbit");
+  }, [canSelect, interactMode]);
 
   useEffect(() => {
     clearSelection();
   }, [mesh, clearSelection]);
 
+  // Mirror interactMode into the measure store and clear picks on mesh change.
+  useEffect(() => {
+    setMeasureActive(interactMode === "measure");
+  }, [interactMode, setMeasureActive]);
+
+  useEffect(() => {
+    clearMeasure();
+    clearMeasureContext();
+  }, [mesh, clearMeasure, clearMeasureContext]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (selectMode !== "off") setSelectMode("off");
-        else clearSelection();
+        if (interactMode === "measure") {
+          // Clear picks first; if already empty, exit measure mode.
+          if (measurePicks.length > 0) clearMeasure();
+          else setInteractMode("orbit");
+        } else if (interactMode !== "orbit") {
+          setInteractMode("orbit");
+        } else {
+          clearSelection();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectMode, clearSelection]);
+  }, [interactMode, measurePicks.length, clearMeasure, clearSelection]);
 
   useEffect(() => {
     setGridColors({
@@ -1016,7 +1092,17 @@ export function Viewport() {
           selectMode={selectMode}
           preciseKind={preciseKind}
           selection={selection}
-          onToggleSelection={toggleSelection}
+          onToggleSelection={
+            measureActive
+              ? (sel) =>
+                  measurePick({ kind: sel.kind, id: sel.id })
+              : toggleSelection
+          }
+          measureActive={measureActive}
+          measurePicks={measurePicks}
+          measureResults={measureResults}
+          contextHoverPicks={contextHover?.picks ?? []}
+          contextHoverResults={contextHover?.results ?? []}
         />
       </Canvas>
 
@@ -1078,9 +1164,11 @@ export function Viewport() {
           </TooltipContent>
         </Tooltip>
       ) : null}
-      <div className="absolute bottom-3 left-3 flex items-end gap-1.5">
+      <div className="absolute bottom-3 left-3 flex flex-col items-start gap-1.5">
+        <MeasurePanel />
+        <div className="flex items-end gap-1.5">
         <div className="flex flex-col gap-1">
-          {selectMode === "precise" && (
+          {interactMode === "precise" && (
             <div className="flex items-center gap-0.5 self-end rounded-md border bg-background/80 p-0.5">
               {PRECISE_KINDS.map((m) => {
                 const Icon = m.icon;
@@ -1118,13 +1206,13 @@ export function Viewport() {
                   size="icon-sm"
                   className={cn(
                     "h-7 w-7",
-                    selectMode === "off"
+                    interactMode === "orbit"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground",
                   )}
-                  onClick={() => setSelectMode("off")}
+                  onClick={() => setInteractMode("orbit")}
                   aria-label="Orbit (no selection)"
-                  aria-pressed={selectMode === "off"}
+                  aria-pressed={interactMode === "orbit"}
                 >
                   <Compass className="size-4" />
                 </Button>
@@ -1140,13 +1228,13 @@ export function Viewport() {
                   disabled={!canSelect}
                   className={cn(
                     "h-7 w-7",
-                    selectMode === "all" && "bg-primary text-primary-foreground",
+                    interactMode === "all" && "bg-primary text-primary-foreground",
                   )}
                   onClick={() =>
-                    setSelectMode(selectMode === "all" ? "off" : "all")
+                    setInteractMode(interactMode === "all" ? "orbit" : "all")
                   }
                   aria-label="Select all (vertices, edges, faces)"
-                  aria-pressed={selectMode === "all"}
+                  aria-pressed={interactMode === "all"}
                 >
                   <Crosshair className="size-4" />
                 </Button>
@@ -1166,14 +1254,16 @@ export function Viewport() {
                   disabled={!canSelect}
                   className={cn(
                     "h-7 w-7",
-                    selectMode === "precise" &&
+                    interactMode === "precise" &&
                       "bg-primary text-primary-foreground",
                   )}
                   onClick={() =>
-                    setSelectMode(selectMode === "precise" ? "off" : "precise")
+                    setInteractMode(
+                      interactMode === "precise" ? "orbit" : "precise",
+                    )
                   }
                   aria-label="Select a specific entity type"
-                  aria-pressed={selectMode === "precise"}
+                  aria-pressed={interactMode === "precise"}
                 >
                   <Target className="size-4" />
                 </Button>
@@ -1184,9 +1274,40 @@ export function Viewport() {
                   : "Selection requires a Build123D part (B-rep)"}
               </TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!canSelect}
+                  className={cn(
+                    "h-7 w-7",
+                    interactMode === "measure" &&
+                      "bg-primary text-primary-foreground",
+                  )}
+                  onClick={() =>
+                    setInteractMode(
+                      interactMode === "measure" ? "orbit" : "measure",
+                    )
+                  }
+                  aria-label="Measure (face / edge / vertex)"
+                  aria-pressed={interactMode === "measure"}
+                >
+                  <Ruler className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {canSelect
+                  ? "Measure (distance, area, length, angle)"
+                  : "Measurement requires a Build123D part (B-rep)"}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
         <SelectionIndicator align="start" side="top" variant="overlay" />
+        <MeasureContextIndicator align="start" side="top" variant="overlay" />
+        </div>
       </div>
       <div className="absolute right-3 top-3 flex items-center gap-1">
         {mesh && (

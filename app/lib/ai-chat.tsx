@@ -15,7 +15,8 @@ import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useSelectionStore } from "~/store/useSelectionStore";
-import type { ChatMessageMetadata, TopologySelection } from "~/types";
+import { useMeasureStore } from "~/store/useMeasureStore";
+import type { ChatMessageMetadata, MeasureResult, TopologySelection } from "~/types";
 
 type ChatInstance = ReturnType<typeof useChat>;
 type ChatStatus = ChatInstance["status"];
@@ -40,19 +41,44 @@ function selectionFromMessageMetadata(
   return [];
 }
 
-function withSelectionMetadata(
+function measurementsFromMessageMetadata(
+  messages: UIMessage[],
+): MeasureResult[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user") continue;
+    const m = (msg.metadata as ChatMessageMetadata | undefined)?.measurements;
+    if (Array.isArray(m) && m.length > 0) return m;
+    break;
+  }
+  return [];
+}
+
+function withContextMetadata(
   message: Parameters<ChatInstance["sendMessage"]>[0],
 ): Parameters<ChatInstance["sendMessage"]>[0] {
   if (message == null) return message;
-  const live = useSelectionStore.getState().selection;
-  if (live.length === 0) return message;
+  const liveSelection = useSelectionStore.getState().selection;
+  const liveMeasurements = useMeasureStore.getState().contextResults;
   const existing = message.metadata as ChatMessageMetadata | undefined;
-  if (existing?.selection && existing.selection.length > 0) return message;
+
+  const selectionChanged =
+    liveSelection.length > 0 && !existing?.selection?.length;
+  const measurementsChanged =
+    liveMeasurements.length > 0 && !existing?.measurements?.length;
+
+  if (!selectionChanged && !measurementsChanged) return message;
+
   return {
     ...message,
     metadata: {
       ...existing,
-      selection: live.map((s) => ({ ...s })),
+      ...(selectionChanged
+        ? { selection: liveSelection.map((s) => ({ ...s })) }
+        : {}),
+      ...(measurementsChanged
+        ? { measurements: liveMeasurements.map((r) => structuredClone(r)) }
+        : {}),
     } satisfies ChatMessageMetadata,
   };
 }
@@ -192,6 +218,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             liveSelection.length > 0
               ? liveSelection
               : selectionFromMessageMetadata(messages);
+          const liveMeasurements = useMeasureStore.getState().contextResults;
+          const measurements =
+            liveMeasurements.length > 0
+              ? liveMeasurements
+              : measurementsFromMessageMetadata(messages);
           return {
             body: {
               ...body,
@@ -202,6 +233,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               language: useModelStore.getState().language,
               partId: useDocumentsStore.getState().activeId,
               selection,
+              measurements,
               codeExternallyModified,
             },
           };
@@ -229,10 +261,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return next;
   }, [chat.messages]);
 
+  // Ref so the memoized sendMessage always calls the LATEST wrapper (survives HMR
+  // module replacements that redefine withContextMetadata).
+  const wrapMessageRef = useRef(withContextMetadata);
+  wrapMessageRef.current = withContextMetadata;
+
   const actions = useMemo<ChatActions>(
     () => ({
       sendMessage: (message, options) =>
-        chat.sendMessage(withSelectionMetadata(message), options),
+        chat.sendMessage(wrapMessageRef.current(message), options),
       stop: chat.stop,
       regenerate: chat.regenerate,
       setMessages: chat.setMessages,
