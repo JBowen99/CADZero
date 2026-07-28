@@ -16,6 +16,7 @@ import {
 import type { OpKind, OpNode } from "~/types";
 import { extractMeta } from "~/lib/model-meta";
 import { useModelStore } from "~/store/useModelStore";
+import { useCodeNavStore } from "~/store/useCodeNavStore";
 import { cn } from "~/lib/utils";
 
 const OP_ICONS: Record<OpKind, LucideIcon> = {
@@ -49,6 +50,12 @@ export function FeatureTree() {
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const navigateToLine = useCodeNavStore((s) => s.navigateToLine);
+
+  const handleSelect = (op: OpNode) => {
+    setSelected(op.id);
+    navigateToLine(op.line);
+  };
 
   return (
     <div className="absolute left-3 top-3 z-10 space-y-px drop-shadow">
@@ -77,7 +84,7 @@ export function FeatureTree() {
                 key={op.id}
                 op={op}
                 selected={selected === op.id}
-                onSelect={setSelected}
+                onSelect={handleSelect}
               />
             ))
           )}
@@ -94,14 +101,14 @@ function TreeRow({
 }: {
   op: OpNode;
   selected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (op: OpNode) => void;
 }) {
   const Icon = OP_ICONS[op.kind] ?? CircleDot;
   return (
     <li className="relative flex items-center">
       <button
         type="button"
-        onClick={() => onSelect(op.id)}
+        onClick={() => onSelect(op)}
         className={cn(
           "flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs",
           selected

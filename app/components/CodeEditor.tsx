@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
 import { useTheme } from "next-themes";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import { redo, undo } from "@codemirror/commands";
 import { python } from "@codemirror/lang-python";
 import { cpp } from "@codemirror/lang-cpp";
@@ -11,6 +11,7 @@ import type { BackendName } from "~/types";
 export type CodeEditorHandle = {
   undo: () => void;
   redo: () => void;
+  scrollToLine: (line: number) => void;
 };
 
 interface CodeEditorProps {
@@ -35,6 +36,16 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
         redo: () => {
           const view = cmRef.current?.view;
           if (view) redo(view);
+        },
+        scrollToLine: (line: number) => {
+          const view = cmRef.current?.view;
+          if (!view) return;
+          const docLine = view.state.doc.line(Math.min(line + 1, view.state.doc.lines));
+          view.dispatch({
+            effects: EditorView.scrollIntoView(docLine.from, { y: "center" }),
+            selection: { anchor: docLine.from },
+          });
+          view.focus();
         },
       }),
       [],

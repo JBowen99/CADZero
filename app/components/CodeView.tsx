@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Code2, Loader2, Play, Redo2, Undo2, X } from "lucide-react";
 import { CodeEditor, type CodeEditorHandle } from "~/components/CodeEditor";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
+import { useCodeNavStore } from "~/store/useCodeNavStore";
 
 export function CodeView() {
   const cadCode = useModelStore((s) => s.cadCode);
@@ -15,10 +16,21 @@ export function CodeView() {
   const editActiveCode = useDocumentsStore((s) => s.editActiveCode);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const editorRef = useRef<CodeEditorHandle>(null);
+  const targetLine = useCodeNavStore((s) => s.targetLine);
+  const clearTarget = useCodeNavStore((s) => s.setTargetLine);
 
   const [error, setError] = useState<string | null>(null);
 
   const canRender = true;
+
+  useEffect(() => {
+    if (targetLine === null) return;
+    const id = requestAnimationFrame(() => {
+      editorRef.current?.scrollToLine(targetLine);
+      clearTarget(null);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [targetLine, clearTarget]);
 
   const handleRender = useCallback(async () => {
     setError(null);

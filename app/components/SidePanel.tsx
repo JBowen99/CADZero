@@ -1,16 +1,15 @@
-import { useState } from "react";
 import { Code2, History, MessageSquare, SlidersHorizontal } from "lucide-react";
 import { ChatPanel } from "~/components/ChatPanel";
 import { CodeView } from "~/components/CodeView";
 import { HistoryPanel } from "~/components/HistoryPanel";
 import { ParameterPanel } from "~/components/ParameterPanel";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useCodeNavStore } from "~/store/useCodeNavStore";
 import { cn } from "~/lib/utils";
 
-type SideTab = "chat" | "code" | "params" | "history";
-
 export function SidePanel() {
-  const [tab, setTab] = useState<SideTab>("chat");
+  const tab = useCodeNavStore((s) => s.sidePanelTab);
+  const setTab = useCodeNavStore((s) => s.setSidePanelTab);
   const activeDoc = useDocumentsStore((s) =>
     s.openDocs.find((d) => d.clientId === s.activeClientId),
   );
