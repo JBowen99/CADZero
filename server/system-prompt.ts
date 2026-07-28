@@ -98,6 +98,57 @@ const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the ru
 
 Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used.`;
 
+const BUILD123D_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the rules above, you MUST structure every script using annotation comments so the application can expose a parameter panel and a feature tree. Follow this format exactly:
+
+1. Declare every user-controllable value as a top-level (column-0) variable with a literal RHS, preceded by a \`# @param\` annotation comment. Put internal/helper values under \`# @param <name> private\` so they stay out of the parameter panel.
+
+2. Each parameter pair uses this shape:
+   \`\`\`
+   # @param <name> <public|private> [min=<n>] [max=<n>] [step=<n>] [options="<a,b,c>"] [desc="<text>"]
+   <name> = <literal>
+   \`\`\`
+   The RHS MUST be a single literal (number, quoted string, or True/False) — never an expression — so the panel can edit it. Use \`# @group <GroupName>\` comments to organize parameters into sections.
+
+3. Mark each modeling operation with an \`# @op\` marker comment on the same line as the relevant builder call, so the feature tree can list it:
+   \`\`\`
+   rectangle(width, depth)                # @op:sketch "Base Profile"
+   extrude(amount=8)                      # @op:extrude "Pad"
+   hole(radius=hole_dia/2)                # @op:hole "Center Hole"
+   \`\`\`
+   Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+4. Example of a complete parametric Build123D script:
+   \`\`\`
+   # @group Dimensions
+   # @param width public min=10 max=200 step=1 desc="Overall width"
+   width = 50.0
+   # @param depth public min=10 max=200 step=1 desc="Overall depth"
+   depth = 30.0
+   # @param hole_dia public min=1 max=50 step=0.5 desc="Hole diameter"
+   hole_dia = 5.0
+   # @param fillet_r public min=0 max=20 step=0.5 desc="Fillet radius"
+   fillet_r = 2.0
+   # @param _eps private
+   _eps = 0.01
+
+   with Build() as ctx:
+       with BuildSketch(Plane.XY) as s:
+           rectangle(width, depth)            # @op:sketch "Base Profile"
+       extrude(amount=8)                      # @op:extrude "Pad"
+       with Locations((width/2, depth/2)):
+           hole(radius=hole_dia/2)            # @op:hole "Center Hole"
+       edges(Axis.Z).fillet(fillet_r)         # @op:fillet "Edge Fillets"
+
+   result = ctx.part                          # @op:final "Bracket"
+   \`\`\`
+
+Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used. Use Python booleans True/False (capitalized).`;
+
+const PARAMETRIC_PROMPTS: Partial<Record<BackendName, string>> = {
+  openscad: OPENSCAD_PARAMETRIC_PROMPT,
+  build123d: BUILD123D_PARAMETRIC_PROMPT,
+};
+
 const BASE_PROMPTS: Record<BackendName, string> = {
   openscad: OPENSCAD_PROMPT,
   build123d: BUILD123D_PROMPT,
@@ -155,8 +206,9 @@ export function buildInstructions(
   parametric = false,
 ): string {
   const sections = [BASE_PROMPTS[language]];
-  if (parametric && language === "openscad") {
-    sections.push("", OPENSCAD_PARAMETRIC_PROMPT);
+  const parametricPrompt = PARAMETRIC_PROMPTS[language];
+  if (parametric && parametricPrompt) {
+    sections.push("", parametricPrompt);
   }
   sections.push("", MODE_PROMPTS[mode]);
   if (cadCode && cadCode.trim()) {

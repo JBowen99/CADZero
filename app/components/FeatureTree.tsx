@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { OpKind, OpNode } from "~/types";
-import { extractScadMeta } from "~/lib/scad-meta";
+import { extractMeta } from "~/lib/model-meta";
 import { useModelStore } from "~/store/useModelStore";
 import { cn } from "~/lib/utils";
 
@@ -42,7 +42,11 @@ const OP_ICONS: Record<OpKind, LucideIcon> = {
 
 export function FeatureTree() {
   const cadCode = useModelStore((s) => s.cadCode);
-  const ops = useMemo(() => extractScadMeta(cadCode ?? "").ops, [cadCode]);
+  const language = useModelStore((s) => s.language);
+  const ops = useMemo(
+    () => extractMeta(cadCode ?? "", language).ops,
+    [cadCode, language],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 

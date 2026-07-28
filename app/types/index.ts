@@ -277,7 +277,7 @@ export interface OpNode {
   line: number;
 }
 
-export interface ScadMeta {
+export interface ModelMeta {
   params: ParamDef[];
   ops: OpNode[];
 }

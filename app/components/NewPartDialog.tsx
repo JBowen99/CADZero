@@ -37,13 +37,12 @@ export function NewPartDialog() {
   }, [open, defaultBackend]);
 
   const build123dDisabled = capsLoaded && !build123d.ok;
-  const parametricDisabled = selected === "build123d";
 
   const submit = async (language: BackendName) => {
     setBusy(true);
     try {
       setDefaultBackend(language);
-      newTab(language, parametric && language === "openscad");
+      newTab(language, parametric);
       setOpen(false);
     } finally {
       setBusy(false);
@@ -90,14 +89,12 @@ export function NewPartDialog() {
 
         <button
           type="button"
-          disabled={parametricDisabled}
           onClick={() => setParametric((v) => !v)}
           className={cn(
             "flex items-center gap-2.5 rounded-lg border p-3 text-left transition-colors",
             parametric
               ? "border-primary bg-primary/10"
               : "border-border hover:bg-accent",
-            parametricDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
           )}
         >
           <div
@@ -124,9 +121,7 @@ export function NewPartDialog() {
           <div className="flex flex-col">
             <span className="text-sm font-medium">Parametric mode</span>
             <span className="text-[11px] leading-snug text-muted-foreground">
-              {parametricDisabled
-                ? "Available for OpenSCAD (Build123D coming soon)"
-                : "Expose parameters as sliders and show a feature tree"}
+              Expose parameters as sliders and show a feature tree
             </span>
           </div>
         </button>

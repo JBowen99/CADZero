@@ -1,4 +1,4 @@
-import type { OpKind, OpNode, ParamDef, ParamType, ScadMeta } from "~/types";
+import type { OpKind, OpNode, ParamDef, ParamType, ModelMeta } from "~/types";
 
 const OP_KINDS: ReadonlySet<string> = new Set([
   "sketch",
@@ -109,7 +109,7 @@ function netBraces(line: string): number {
   return depth;
 }
 
-export function extractScadMeta(code: string): ScadMeta {
+export function extractScadMeta(code: string): ModelMeta {
   const params: ParamDef[] = [];
   const ops: OpNode[] = [];
   if (!code) return { params, ops };
@@ -194,4 +194,4 @@ export function extractScadMeta(code: string): ScadMeta {
   return { params, ops };
 }
 
-export const EMPTY_SCAD_META: ScadMeta = { params: [], ops: [] };
+export const EMPTY_SCAD_META: ModelMeta = { params: [], ops: [] };

@@ -384,7 +384,7 @@ export function Toolbar() {
           </TooltipContent>
         </Tooltip>
 
-        {language === "openscad" && activeId && (
+        {activeId && (
           <ParametricToggle />
         )}
       </div>

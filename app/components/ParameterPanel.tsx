@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ParamDef } from "~/types";
-import { extractScadMeta } from "~/lib/scad-meta";
-import { patchScadParam } from "~/lib/scad-patcher";
+import { extractMeta } from "~/lib/model-meta";
+import { patchParam } from "~/lib/model-meta";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 import { Slider } from "~/components/ui/slider";
@@ -18,13 +18,14 @@ interface GroupedParams {
 
 export function ParameterPanel() {
   const cadCode = useModelStore((s) => s.cadCode);
+  const language = useModelStore((s) => s.language);
   const editActiveCode = useDocumentsStore((s) => s.editActiveCode);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const isRendering = useModelStore((s) => s.isRendering);
 
   const meta = useMemo(
-    () => extractScadMeta(cadCode ?? ""),
-    [cadCode],
+    () => extractMeta(cadCode ?? "", language),
+    [cadCode, language],
   );
   const publicParams = useMemo(
     () => meta.params.filter((p) => p.public),
@@ -59,7 +60,8 @@ export function ParameterPanel() {
   const handleChange = useCallback(
     (name: string, value: number | string | boolean) => {
       const code = useModelStore.getState().cadCode ?? "";
-      const patched = patchScadParam(code, name, value);
+      const lang = useModelStore.getState().language;
+      const patched = patchParam(code, name, value, lang);
       if (patched === code) return;
       editActiveCode(patched);
       scheduleRender();
