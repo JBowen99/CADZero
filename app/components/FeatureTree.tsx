@@ -46,59 +46,49 @@ export function FeatureTree() {
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  if (collapsed) {
-    return (
+  return (
+    <div className="absolute left-3 top-3 z-10 space-y-px drop-shadow">
       <button
         type="button"
-        onClick={() => setCollapsed(false)}
-        className="absolute left-3 top-3 z-10 text-muted-foreground drop-shadow hover:text-foreground"
+        onClick={() => setCollapsed((c) => !c)}
+        className={cn(
+          "flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs",
+          collapsed
+            ? "text-muted-foreground hover:text-foreground"
+            : "text-primary",
+        )}
       >
-        <Layers className="size-4" />
+        <Layers className="size-3.5" />
+        {!collapsed && <span className="font-medium">Feature Tree</span>}
       </button>
-    );
-  }
-
-  return (
-    <ol className="absolute left-3 top-3 z-10 space-y-px drop-shadow">
-      {ops.length === 0 ? (
-        <li className="text-[11px] text-muted-foreground drop-shadow">
-          No operations yet
-        </li>
-      ) : (
-        ops.map((op, i) => (
-          <TreeRow
-            key={op.id}
-            op={op}
-            isLast={i === ops.length - 1}
-            selected={selected === op.id}
-            onSelect={(id) => {
-              setSelected(id);
-              if (id === selected) setCollapsed(true);
-            }}
-          />
-        ))
+      {!collapsed && (
+        <ol className="space-y-px">
+          {ops.length === 0 ? (
+            <li className="px-1.5 text-[11px] text-muted-foreground">
+              No operations yet
+            </li>
+          ) : (
+            ops.map((op) => (
+              <TreeRow
+                key={op.id}
+                op={op}
+                selected={selected === op.id}
+                onSelect={setSelected}
+              />
+            ))
+          )}
+        </ol>
       )}
-      <li>
-        <button
-          type="button"
-          onClick={() => setCollapsed(true)}
-          className="text-muted-foreground/60 hover:text-foreground"
-        >
-          <Minus className="size-3" />
-        </button>
-      </li>
-    </ol>
+    </div>
   );
 }
 
 function TreeRow({
   op,
-  isLast,
   selected,
   onSelect,
 }: {
   op: OpNode;
-  isLast: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
