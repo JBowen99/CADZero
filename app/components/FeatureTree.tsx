@@ -1,8 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   Box,
-  ChevronDown,
-  ChevronRight,
   CircleDot,
   Disc,
   Flag,
@@ -18,7 +16,6 @@ import {
 import type { OpKind, OpNode } from "~/types";
 import { extractScadMeta } from "~/lib/scad-meta";
 import { useModelStore } from "~/store/useModelStore";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 
 const OP_ICONS: Record<OpKind, LucideIcon> = {
@@ -45,11 +42,7 @@ const OP_ICONS: Record<OpKind, LucideIcon> = {
 
 export function FeatureTree() {
   const cadCode = useModelStore((s) => s.cadCode);
-  const meta = useMemo(
-    () => extractScadMeta(cadCode ?? ""),
-    [cadCode],
-  );
-  const ops = meta.ops;
+  const ops = useMemo(() => extractScadMeta(cadCode ?? "").ops, [cadCode]);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -58,55 +51,43 @@ export function FeatureTree() {
       <button
         type="button"
         onClick={() => setCollapsed(false)}
-        className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm hover:bg-background"
+        className="absolute left-3 top-3 z-10 text-muted-foreground drop-shadow hover:text-foreground"
       >
-        <Layers className="size-3.5 text-primary" />
-        <ChevronRight className="size-3.5" />
+        <Layers className="size-4" />
       </button>
     );
   }
 
   return (
-    <div className="absolute left-3 top-3 z-10 flex max-h-[70%] w-56 flex-col overflow-hidden rounded-lg border bg-background/80 shadow-md backdrop-blur-sm">
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-2.5">
-        <Layers className="size-3.5 text-primary" />
-        <span className="text-xs font-semibold">Feature Tree</span>
+    <ol className="absolute left-3 top-3 z-10 space-y-px drop-shadow">
+      {ops.length === 0 ? (
+        <li className="text-[11px] text-muted-foreground drop-shadow">
+          No operations yet
+        </li>
+      ) : (
+        ops.map((op, i) => (
+          <TreeRow
+            key={op.id}
+            op={op}
+            isLast={i === ops.length - 1}
+            selected={selected === op.id}
+            onSelect={(id) => {
+              setSelected(id);
+              if (id === selected) setCollapsed(true);
+            }}
+          />
+        ))
+      )}
+      <li>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
-          className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="text-muted-foreground/60 hover:text-foreground"
         >
-          <ChevronDown className="size-3.5" />
+          <Minus className="size-3" />
         </button>
-      </div>
-      <div className="min-h-0 flex-1">
-        {ops.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 p-4 text-center">
-            <p className="text-xs text-muted-foreground">
-              No operations found
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              Operations appear when the model uses{" "}
-              <code className="rounded bg-muted px-1 py-0.5">@op</code> markers.
-            </p>
-          </div>
-        ) : (
-          <ScrollArea className="h-full">
-            <ol className="relative space-y-0.5 p-2">
-              {ops.map((op, i) => (
-                <TreeRow
-                  key={op.id}
-                  op={op}
-                  isLast={i === ops.length - 1}
-                  selected={selected === op.id}
-                  onSelect={setSelected}
-                />
-              ))}
-            </ol>
-          </ScrollArea>
-        )}
-      </div>
-    </div>
+      </li>
+    </ol>
   );
 }
 
@@ -123,26 +104,19 @@ function TreeRow({
 }) {
   const Icon = OP_ICONS[op.kind] ?? CircleDot;
   return (
-    <li className="relative pl-5">
-      {!isLast && (
-        <span className="absolute top-5 left-[9px] h-full w-px bg-border" />
-      )}
-      <span className="absolute top-1.5 left-0 size-[18px] rounded-full border-2 border-border bg-background" />
+    <li className="relative flex items-center">
       <button
         type="button"
         onClick={() => onSelect(op.id)}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors",
+          "flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs",
           selected
-            ? "bg-primary/10 text-primary"
-            : "text-foreground hover:bg-accent",
+            ? "bg-primary/20 text-primary"
+            : "text-foreground/90 hover:bg-accent/40",
         )}
       >
-        <Icon className="size-3.5 shrink-0" />
-        <span className="truncate">{op.name}</span>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {op.rawKind}
-        </span>
+        <Icon className="size-3 shrink-0" />
+        <span>{op.name}</span>
       </button>
     </li>
   );
