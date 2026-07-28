@@ -2,6 +2,19 @@ export type BackendName = "openscad" | "build123d";
 
 export type ExportFormat = "stl" | "obj" | "3mf" | "step";
 
+export type ViewMode = "solid" | "shaded" | "wireframe";
+
+export interface LightingSettings {
+  ambientIntensity: number;
+  directionalIntensity: number;
+  azimuth: number;
+  elevation: number;
+  roughness: number;
+  metalness: number;
+  rimLight: boolean;
+  rimIntensity: number;
+}
+
 export type FaceExportFormat = "svg" | "dxf";
 
 export type MessageRole = "user" | "assistant";
@@ -191,7 +204,8 @@ export interface AppSettings {
   model?: string | null;
   defaultBackend?: BackendName;
   panelSplit?: number;
-  viewMode?: string;
+  viewMode?: ViewMode;
+  lighting?: LightingSettings;
   gridVisible?: boolean;
   gizmoVisible?: boolean;
   lastOpenDocIds?: string[];

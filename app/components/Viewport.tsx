@@ -36,9 +36,10 @@ import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useSelectionStore } from "~/store/useSelectionStore";
 import { useMeasureStore } from "~/store/useMeasureStore";
+import { useSettingsStore } from "~/store/useSettingsStore";
 import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
-import type { BackendName, FaceGroup, MeasurePick, MeasureResult, Topology, TopologySelection } from "~/types";
+import type { BackendName, FaceGroup, LightingSettings, MeasurePick, MeasureResult, Topology, TopologySelection, ViewMode } from "~/types";
 
 const OPENSCAD_UP_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
 const IDENTITY_ROTATION: [number, number, number] = [0, 0, 0];
@@ -56,13 +57,12 @@ interface GridColors {
   section: string;
 }
 
-type ViewMode = "shaded" | "solid" | "wireframe";
 type SelectMode = "off" | "all" | "precise";
 type SelectKind = "face" | "edge" | "vertex";
 
 const VIEW_MODES: { value: ViewMode; label: string; icon: typeof Box }[] = [
-  { value: "shaded", label: "Shaded", icon: Disc },
   { value: "solid", label: "Solid", icon: Box },
+  { value: "shaded", label: "Shaded", icon: Disc },
   { value: "wireframe", label: "Wireframe", icon: Grid3x3 },
 ];
 
@@ -660,6 +660,7 @@ function Scene({
   measureResults,
   contextHoverPicks,
   contextHoverResults,
+  lighting,
 }: {
   geometry: THREE.BufferGeometry | null;
   edgePositions: Float32Array | null;
@@ -683,6 +684,7 @@ function Scene({
   measureResults: MeasureResult[];
   contextHoverPicks: MeasurePick[];
   contextHoverResults: MeasureResult[];
+  lighting: LightingSettings;
 }) {
   const meshRef = useRef<THREE.Mesh | null>(null);
   const edgesRef = useRef<THREE.BufferGeometry | null>(null);
@@ -698,15 +700,33 @@ function Scene({
   }, [edgePositions, viewMode]);
   useEffect(() => () => edgesRef.current?.dispose(), []);
 
+  const keyLightPos = useMemo<[number, number, number]>(() => {
+    const az = THREE.MathUtils.degToRad(lighting.azimuth);
+    const el = THREE.MathUtils.degToRad(lighting.elevation);
+    const r = 100;
+    return [
+      r * Math.cos(el) * Math.sin(az),
+      r * Math.sin(el),
+      r * Math.cos(el) * Math.cos(az),
+    ];
+  }, [lighting.azimuth, lighting.elevation]);
+  const rimLightPos = useMemo<[number, number, number]>(
+    () => [-keyLightPos[0], keyLightPos[1], -keyLightPos[2]],
+    [keyLightPos],
+  );
+
   return (
     <>
-      <ambientLight intensity={1.0} />
+      <ambientLight intensity={lighting.ambientIntensity} />
       <directionalLight
-        position={[80, 120, 60]}
-        intensity={0.5}
+        position={keyLightPos}
+        intensity={lighting.directionalIntensity}
         castShadow
         shadow-mapSize={[1024, 1024]}
       />
+      {lighting.rimLight && (
+        <directionalLight position={rimLightPos} intensity={lighting.rimIntensity} />
+      )}
 
       <Bounds margin={1.2}>
         <FitController
@@ -733,8 +753,8 @@ function Scene({
                 >
                   <meshStandardMaterial
                     color="#d4d4d8"
-                    metalness={0}
-                    roughness={0.95}
+                    metalness={lighting.metalness}
+                    roughness={lighting.roughness}
                     polygonOffset={viewMode === "solid"}
                     polygonOffsetFactor={1}
                     polygonOffsetUnits={1}
@@ -911,6 +931,9 @@ export function Viewport() {
   const clearMeasure = useMeasureStore((s) => s.clear);
   const clearMeasureContext = useMeasureStore((s) => s.clearContext);
   const measurePick = useMeasureStore((s) => s.pick);
+  const lighting = useSettingsStore((s) => s.lighting);
+  const defaultViewMode = useSettingsStore((s) => s.viewMode);
+  const persistViewMode = useSettingsStore((s) => s.setViewMode);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
@@ -944,7 +967,11 @@ export function Viewport() {
   const fitRef = useRef<(() => void) | null>(null);
   const frameRef = useRef<(() => void) | null>(null);
   const interactingRef = useRef(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("shaded");
+  const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
+  const handleSetViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    persistViewMode(mode);
+  };
   const [interactMode, setInteractMode] = useState<
     "orbit" | "all" | "precise" | "measure"
   >("orbit");
@@ -1103,6 +1130,7 @@ export function Viewport() {
           measureResults={measureResults}
           contextHoverPicks={contextHover?.picks ?? []}
           contextHoverResults={contextHover?.results ?? []}
+          lighting={lighting}
         />
       </Canvas>
 
@@ -1326,7 +1354,7 @@ export function Viewport() {
                         "h-7 w-7",
                         active && "bg-primary text-primary-foreground",
                       )}
-                      onClick={() => setViewMode(m.value)}
+                      onClick={() => handleSetViewMode(m.value)}
                       aria-label={m.label}
                       aria-pressed={active}
                     >
