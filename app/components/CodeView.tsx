@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 import { useCodeNavStore } from "~/store/useCodeNavStore";
+import { toggleParamVisibility } from "~/lib/promote-demotion";
 
 export function CodeView() {
   const cadCode = useModelStore((s) => s.cadCode);
@@ -18,6 +19,11 @@ export function CodeView() {
   const editorRef = useRef<CodeEditorHandle>(null);
   const targetLine = useCodeNavStore((s) => s.targetLine);
   const clearTarget = useCodeNavStore((s) => s.setTargetLine);
+  const parametric = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.parametric ??
+      false,
+  );
 
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +46,15 @@ export function CodeView() {
       setError(msg);
     }
   }, [renderActiveCode]);
+
+  const handleToggleParam = useCallback(
+    (name: string) => {
+      const code = useModelStore.getState().cadCode ?? "";
+      const patched = toggleParamVisibility(code, name, language);
+      if (patched !== code) editActiveCode(patched);
+    },
+    [editActiveCode, language],
+  );
 
   if (!cadCode) {
     return (
@@ -138,6 +153,7 @@ export function CodeView() {
           language={language}
           onChange={editActiveCode}
           onRender={() => void handleRender()}
+          onToggleParam={parametric ? handleToggleParam : undefined}
         />
       </div>
     </div>

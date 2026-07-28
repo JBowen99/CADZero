@@ -7,6 +7,7 @@ import { python } from "@codemirror/lang-python";
 import { cpp } from "@codemirror/lang-cpp";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { BackendName } from "~/types";
+import { paramGutter } from "~/lib/cm-param-gutter";
 
 export type CodeEditorHandle = {
   undo: () => void;
@@ -19,10 +20,11 @@ interface CodeEditorProps {
   language: BackendName;
   onChange: (code: string) => void;
   onRender?: () => void;
+  onToggleParam?: (name: string) => void;
 }
 
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
-  function CodeEditor({ value, language, onChange, onRender }, ref) {
+  function CodeEditor({ value, language, onChange, onRender, onToggleParam }, ref) {
     const { resolvedTheme } = useTheme();
     const cmRef = useRef<ReactCodeMirrorRef>(null);
 
@@ -66,8 +68,9 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(
             ]),
           ]
         : [];
-      return [lang, ...extra];
-    }, [language, onRender]);
+      const gutter = onToggleParam ? paramGutter(language, onToggleParam) : [];
+      return [lang, ...extra, ...gutter];
+    }, [language, onRender, onToggleParam]);
 
     return (
       <CodeMirror
