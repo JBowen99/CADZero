@@ -90,7 +90,8 @@ export const useMeasureStore = create<MeasureState>((set) => ({
         // against a moving reference. If the prior pick was identical, just replace.
         picks = s.picks.length >= 1 ? [s.picks[s.picks.length - 1], p] : [p];
       } else {
-        // Chain: append up to a sane cap (drop oldest beyond the cap).
+        // Chain: same entity type only — locked by the first pick.
+        if (s.picks.length > 0 && s.picks[0].kind !== p.kind) return s;
         picks = [...s.picks, p];
         if (picks.length > CHAIN_CAP) picks = picks.slice(picks.length - CHAIN_CAP);
       }

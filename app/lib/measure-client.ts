@@ -126,28 +126,37 @@ export function computeClientSide(
     return null;
   }
 
-  // Chain mode
+  // Chain mode — entity-type aware:
+  //   All vertices → pair distances between consecutive picks
+  //   All edges    → single length per edge
+  //   All faces    → single area per face
+  //   Mixed        → single per pick (each entity's primary dimension)
   if (mode === "chain") {
     if (picks.length === 1) {
       const r = single(picks[0]);
       return r ? [r] : null;
     }
-    const results: MeasureResult[] = [];
-    for (let i = 0; i < picks.length - 1; i++) {
-      const a = picks[i];
-      const b = picks[i + 1];
-      if (a.kind === "vertex" && b.kind === "vertex") {
-        const va = findVertex(a.id);
-        const vb = findVertex(b.id);
+
+    const allVertices = picks.every((p) => p.kind === "vertex");
+
+    if (allVertices) {
+      // Consecutive vertex-vertex pair distances
+      const results: MeasureResult[] = [];
+      for (let i = 0; i < picks.length - 1; i++) {
+        const va = findVertex(picks[i].id);
+        const vb = findVertex(picks[i + 1].id);
         if (va && vb) {
           results.push(vertexVertex(va, vb));
-          continue;
+        } else {
+          return null; // entity not found — fall through to server
         }
       }
-      // Any non-vv segment in the chain → need server for the whole chain
-      return null;
+      return results.length > 0 ? results : null;
     }
-    return results;
+
+    // Edges, faces, or mixed → single measurement per pick
+    const results = picks.map(single).filter((r): r is MeasureResult => r !== null);
+    return results.length > 0 ? results : null;
   }
 
   return null;

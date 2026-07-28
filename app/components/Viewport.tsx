@@ -99,7 +99,7 @@ function faceSelection(face: FaceGroup): TopologySelection {
     kind: "face",
     id: face.id,
     label: `Face ${face.id}`,
-    summary: `normal ${normalDirection(face.normal)} · ${face.area.toFixed(0)} mm² · center ${fmtVec(face.center)}`,
+    summary: `${face.area.toFixed(0)} mm² · center ${fmtVec(face.center)}`,
   };
 }
 

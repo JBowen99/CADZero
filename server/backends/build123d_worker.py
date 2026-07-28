@@ -641,8 +641,15 @@ def measure(result, picks, mode, out_path):
         if len(picks) == 1:
             results.append(single(picks[0]))
         else:
-            for i in range(len(picks) - 1):
-                results.append(pair(picks[i], picks[i + 1]))
+            kinds = set(p.get("kind") for p in picks)
+            if kinds == {"vertex"}:
+                # All vertices: consecutive pair distances
+                for i in range(len(picks) - 1):
+                    results.append(pair(picks[i], picks[i + 1]))
+            else:
+                # Edges, faces, or mixed: single measurement per pick
+                for p in picks:
+                    results.append(single(p))
     else:
         raise ValueError("mode must be 'single' | 'pair' | 'chain' (got %r)" % (mode,))
 

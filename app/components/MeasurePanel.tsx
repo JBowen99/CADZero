@@ -54,7 +54,6 @@ function summarizeSingle(entity: MeasureEntity): { title: string; lines: string[
   if (entity.kind === "face") {
     if (entity.area !== undefined) lines.push(`Area: ${entity.area.toLocaleString(undefined, { maximumFractionDigits: 3 })} mm²`);
     if (entity.perimeter !== undefined) lines.push(`Perimeter: ${entity.perimeter.toFixed(3)} mm`);
-    if (entity.normal) lines.push(`Normal: ${normalDirection(entity.normal)}`);
     if (entity.center) lines.push(`Center: ${fmtVec(entity.center)}`);
     if (entity.radius !== undefined && entity.radius !== null) lines.push(`Radius: ${entity.radius.toFixed(3)} mm`);
   } else if (entity.kind === "edge") {
@@ -150,10 +149,17 @@ export function MeasurePanel() {
 
   if (!active) return null;
 
-  // Chain running total (sum of pair distances).
-  const total = results
-    .filter((r): r is Extract<MeasureResult, { kind: "pair" }> => r.kind === "pair")
-    .reduce((sum, r) => sum + r.pair.distance, 0);
+  // Chain running total — sums the primary dimension per result type:
+  // pair → distance, single edge → length, single face → area.
+  const total = results.reduce((sum, r) => {
+    if (r.kind === "pair") return sum + r.pair.distance;
+    if (r.entity.kind === "edge") return sum + (r.entity.length ?? 0);
+    if (r.entity.kind === "face") return sum + (r.entity.area ?? 0);
+    return sum;
+  }, 0);
+  const totalUnit = results.some((r) => r.kind === "single" && r.entity.kind === "face")
+    ? "mm²"
+    : "mm";
 
   const showCard = picks.length > 0 || results.length > 0 || status === "error";
 
@@ -267,7 +273,7 @@ export function MeasurePanel() {
                 {results.length} segments
               </span>
               <span>
-                Σ {total.toFixed(3)} mm
+                Σ {total.toLocaleString(undefined, { maximumFractionDigits: 3 })} {totalUnit}
               </span>
             </div>
           )}
