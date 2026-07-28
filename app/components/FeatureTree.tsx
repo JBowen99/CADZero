@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   Box,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   Disc,
   Flag,
@@ -49,25 +51,43 @@ export function FeatureTree() {
   );
   const ops = meta.ops;
   const [selected, setSelected] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1.5 text-xs font-medium shadow-sm backdrop-blur-sm hover:bg-background"
+      >
+        <Layers className="size-3.5 text-primary" />
+        <ChevronRight className="size-3.5" />
+      </button>
+    );
+  }
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col border-r bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 px-3">
+    <div className="absolute left-3 top-3 z-10 flex max-h-[70%] w-56 flex-col overflow-hidden rounded-lg border bg-background/80 shadow-md backdrop-blur-sm">
+      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-2.5">
         <Layers className="size-3.5 text-primary" />
         <span className="text-xs font-semibold">Feature Tree</span>
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <ChevronDown className="size-3.5" />
+        </button>
       </div>
       <div className="min-h-0 flex-1">
         {ops.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+          <div className="flex flex-col items-center justify-center gap-1.5 p-4 text-center">
             <p className="text-xs text-muted-foreground">
               No operations found
             </p>
             <p className="text-[11px] text-muted-foreground">
-              Operations appear here when the model uses{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                @op
-              </code>{" "}
-              markers.
+              Operations appear when the model uses{" "}
+              <code className="rounded bg-muted px-1 py-0.5">@op</code> markers.
             </p>
           </div>
         ) : (
@@ -86,7 +106,7 @@ export function FeatureTree() {
           </ScrollArea>
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 

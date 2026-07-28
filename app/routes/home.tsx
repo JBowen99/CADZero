@@ -121,19 +121,12 @@ function Workspace() {
         orientation="horizontal"
         className="min-h-0 flex-1"
       >
-        {parametric && (
-          <>
-            <ResizablePanel defaultSize="18%" minSize="12%" maxSize="32%">
-              <FeatureTree />
-            </ResizablePanel>
-            <ResizableHandle />
-          </>
-        )}
         <ResizablePanel defaultSize="70%" minSize="30%">
           <div className="flex h-full w-full min-w-0 flex-col">
             <TabBar />
-            <div className="min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1">
               <Viewport />
+              {parametric && <FeatureTree />}
             </div>
           </div>
         </ResizablePanel>
