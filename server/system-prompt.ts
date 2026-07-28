@@ -41,6 +41,63 @@ Supported Build123D vocabulary (algebraic API is preferred):
 How holes work: subtract a slightly taller cylinder from the body: \`result = plate - hole.moved(Pos(x, y, 0))\`.
 Keep meshes reasonable — do not request absurd tolerances; the STL is tessellated automatically. Output must be complete, valid, self-contained Python. If a render fails, the traceback names the line — read it, fix the script, and return the complete script again.`;
 
+const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the rules above, you MUST structure every script using the OpenSCAD Customizer convention so the application can expose a parameter panel and a feature tree. Follow this format exactly:
+
+1. Declare every user-controllable value as a top-level variable, grouped under a section header comment. Put internal/helper values under a \`/* [Hidden] */\` section so they stay out of the parameter panel.
+
+2. Each parameter line uses this shape:
+   \`\`\`
+   /* [Group Name] */
+   // Human-readable description of the parameter
+   variable_name = <literal>; // [min:step:max]      (slider)
+   // or
+   variable_name = <literal>; // [min:max]            (slider, step inferred)
+   // or
+   variable_name = <literal>; // [opt1,opt2,opt3]     (dropdown)
+   // or
+   variable_name = <literal>;                         (plain field: number/text/bool)
+   \`\`\`
+   The RHS MUST be a single literal (number, quoted string, or true/false) — never an expression — so the panel can edit it. Use the preceding \`// description\` line to label the parameter.
+
+3. Mark each modeling operation with an \`@op\` marker comment on the line that defines or invokes it, so the feature tree can list it:
+   \`\`\`
+   module base_profile() square([width, depth]);          // @op:sketch "Base Profile"
+   module pad() linear_extrude(height) base_profile();    // @op:extrude "Pad"
+   module final() difference() { pad(); ... }             // @op:cut "Center Hole"
+   final();                                               // @op:final "Bracket"
+   \`\`\`
+   Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+4. Example of a complete parametric script:
+   \`\`\`
+   /* [Dimensions] */
+   // Overall width
+   width = 50;        // [10:1:200]
+   // Overall depth
+   depth = 30;        // [10:1:200]
+   // Hole diameter
+   hole_dia = 5;      // [1:0.5:50]
+   // Fillet radius
+   fillet_r = 2;      // [0:0.5:20]
+
+   /* [Hidden] */
+   _eps = 0.01;
+
+   /* [Features] */
+   module base_profile() square([width, depth], center=true);    // @op:sketch "Base Profile"
+   module pad() linear_extrude(8) base_profile();                // @op:extrude "Pad"
+   module hole() cylinder(h=99, d=hole_dia, $fn=32, center=true); // @op:hole "Center Hole"
+   module final() {
+     difference() {
+       pad();
+       hole();
+     }
+   }
+   final();                                                      // @op:final "Bracket"
+   \`\`\`
+
+Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used.`;
+
 const BASE_PROMPTS: Record<BackendName, string> = {
   openscad: OPENSCAD_PROMPT,
   build123d: BUILD123D_PROMPT,
@@ -95,8 +152,13 @@ export function buildInstructions(
   selection: TopologySelection[] = [],
   codeExternallyModified = false,
   measurements: MeasureResult[] = [],
+  parametric = false,
 ): string {
-  const sections = [BASE_PROMPTS[language], "", MODE_PROMPTS[mode]];
+  const sections = [BASE_PROMPTS[language]];
+  if (parametric && language === "openscad") {
+    sections.push("", OPENSCAD_PARAMETRIC_PROMPT);
+  }
+  sections.push("", MODE_PROMPTS[mode]);
   if (cadCode && cadCode.trim()) {
     sections.push(
       "",

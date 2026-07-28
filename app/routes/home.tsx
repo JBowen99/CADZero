@@ -4,6 +4,7 @@ import { Toolbar } from "~/components/Toolbar";
 import { TabBar } from "~/components/TabBar";
 import { Viewport } from "~/components/Viewport";
 import { SidePanel } from "~/components/SidePanel";
+import { FeatureTree } from "~/components/FeatureTree";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { ProviderSetup } from "~/components/ProviderSetup";
 import { NamePrompt } from "~/components/NamePrompt";
@@ -55,6 +56,11 @@ function Workspace() {
   );
   const openDocs = useDocumentsStore((s) => s.openDocs);
   const activeClientId = useDocumentsStore((s) => s.activeClientId);
+  const parametric = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.parametric ??
+      false,
+  );
   const reopenedRef = useRef(false);
 
   useEffect(() => {
@@ -115,6 +121,14 @@ function Workspace() {
         orientation="horizontal"
         className="min-h-0 flex-1"
       >
+        {parametric && (
+          <>
+            <ResizablePanel defaultSize="18%" minSize="12%" maxSize="32%">
+              <FeatureTree />
+            </ResizablePanel>
+            <ResizableHandle />
+          </>
+        )}
         <ResizablePanel defaultSize="70%" minSize="30%">
           <div className="flex h-full w-full min-w-0 flex-col">
             <TabBar />

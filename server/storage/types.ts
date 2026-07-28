@@ -14,6 +14,7 @@ export interface PartMeta {
   createdAt: number;
   updatedAt: number;
   headRevId: string | null;
+  parametric: boolean;
 }
 
 export interface PartSummary {
@@ -24,6 +25,7 @@ export interface PartSummary {
   createdAt: number;
   updatedAt: number;
   headRevId: string | null;
+  parametric: boolean;
 }
 
 export interface RevisionRecord {

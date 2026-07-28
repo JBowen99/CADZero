@@ -237,6 +237,7 @@ app.post("/api/parts", async (c) => {
     name?: string;
     type?: PartType;
     language?: BackendName;
+    parametric?: boolean;
   } = await c.req.json().catch(() => ({}));
   const meta = createPart(root, {
     name:
@@ -245,6 +246,7 @@ app.post("/api/parts", async (c) => {
         : "Untitled",
     type: body.type ?? "part",
     language: body.language ?? "openscad",
+    parametric: body.parametric === true,
   });
   return c.json(meta, 201);
 });
@@ -272,6 +274,7 @@ app.patch("/api/parts/:id", async (c) => {
     name?: string;
     type?: PartType;
     language?: unknown;
+    parametric?: boolean;
   } | null = await c.req.json().catch(() => null);
   if (!body) return c.json({ error: "invalid body" }, 400);
   if (body.language !== undefined) {
@@ -280,7 +283,11 @@ app.patch("/api/parts/:id", async (c) => {
       409,
     );
   }
-  const meta = updatePartMeta(root, c.req.param("id"), body);
+  const meta = updatePartMeta(root, c.req.param("id"), {
+    name: body.name,
+    type: body.type,
+    parametric: body.parametric,
+  });
   if (!meta) return c.json({ error: "part not found" }, 404);
   return c.json(meta);
 });
@@ -663,6 +670,7 @@ app.post("/api/render", async (c) => {
 function makeUpdateModelTool(opts: {
   workspaceRoot: string | null;
   partId: string | null;
+  parametric: boolean;
 }) {
   return tool({
     description:
@@ -725,6 +733,7 @@ function makeUpdateModelTool(opts: {
             name: "Untitled",
             type: "part",
             language,
+            parametric: opts.parametric,
           });
           partId = created.id;
         }
@@ -766,10 +775,11 @@ interface ChatRequestBody {
   selection?: TopologySelection[];
   measurements?: MeasureResult[];
   codeExternallyModified?: boolean;
+  parametric?: boolean;
 }
 
 app.post("/api/chat", async (c) => {
-  const { messages, mode, model, cadCode, language, partId, selection, measurements, codeExternallyModified } =
+  const { messages, mode, model, cadCode, language, partId, selection, measurements, codeExternallyModified, parametric } =
     await c.req.json<ChatRequestBody>();
 
   const safeMode: ChatMode =
@@ -784,6 +794,15 @@ app.post("/api/chat", async (c) => {
     workspaceRoot = requireWorkspaceRoot();
   } catch {
     workspaceRoot = null;
+  }
+
+  // Parametric flag source of truth: the persisted part meta wins over the
+  // client-supplied value so a stale request body can't override the toggle.
+  let resolvedParametric = parametric === true;
+  const safePartId = partId ?? null;
+  if (workspaceRoot && safePartId) {
+    const existing = getPart(workspaceRoot, safePartId);
+    if (existing) resolvedParametric = existing.parametric;
   }
 
   const apiKey = requireCredentialStore().get("openrouter");
@@ -807,12 +826,14 @@ app.post("/api/chat", async (c) => {
       safeSelection,
       codeExternallyModified === true,
       safeMeasurements,
+      resolvedParametric,
     ),
     messages: await convertToModelMessages(messages),
     tools: {
       update_model: makeUpdateModelTool({
         workspaceRoot,
-        partId: partId ?? null,
+        partId: safePartId,
+        parametric: resolvedParametric,
       }),
     },
     stopWhen: stepCountIs(4),

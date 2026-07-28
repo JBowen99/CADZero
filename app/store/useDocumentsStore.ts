@@ -38,6 +38,7 @@ export interface OpenDoc {
   cadCode: string;
   meshCode: string | null;
   language: BackendName;
+  parametric: boolean;
   chat: UIMessage[];
   chatLoaded: boolean;
   chatLoading: boolean;
@@ -53,16 +54,18 @@ interface DocumentsState {
   activeClientId: string | null;
   activeId: string | null;
   activeMeta: PartSummary | null;
+  activeDocParametric: boolean | null;
   previewingRevId: string | null;
   namePromptOpen: boolean;
   newPartDialogOpen: boolean;
   saveSignal: number;
   codeDirtyGuard: { open: boolean; resolve?: (ok: boolean) => void } | null;
   openPart: (id: string, opts?: { background?: boolean }) => Promise<void>;
-  newTab: (language: BackendName) => void;
+  newTab: (language: BackendName, parametric?: boolean) => void;
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
+  setParametric: (parametric: boolean) => Promise<void>;
   editActiveCode: (code: string) => void;
   clearCodeDirty: () => void;
   guardCodeDirty: () => Promise<boolean>;
@@ -138,6 +141,7 @@ function deriveActive(openDocs: OpenDoc[], activeClientId: string | null) {
   return {
     activeId: doc?.partId ?? null,
     activeMeta: doc?.meta ?? null,
+    activeDocParametric: doc ? doc.parametric : null,
     previewingRevId: doc?.previewingRevId ?? null,
   };
 }
@@ -184,6 +188,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     activeClientId: null,
     activeId: null,
     activeMeta: null,
+    activeDocParametric: null,
     previewingRevId: null,
     namePromptOpen: false,
     newPartDialogOpen: false,
@@ -213,6 +218,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         cadCode: data.code ?? "",
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
+        parametric: data.meta.parametric === true,
         chat: [],
         chatLoaded: false,
         chatLoading: false,
@@ -241,7 +247,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!opts?.background) mirrorActiveToModel(doc);
     },
 
-    newTab: (language) => {
+    newTab: (language, parametric = false) => {
       const doc: OpenDoc = {
         clientId: genClientId(),
         partId: null,
@@ -251,6 +257,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         cadCode: "",
         meshCode: null,
         language,
+        parametric,
         chat: [],
         chatLoaded: true,
         chatLoading: false,
@@ -302,6 +309,32 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
 
     patchActiveDoc: (patch) => {
       setActiveDocFields(patch);
+    },
+
+    setParametric: async (parametric) => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc || doc.parametric === parametric) return;
+      setActiveDocFields({
+        parametric,
+        meta: doc.meta ? { ...doc.meta, parametric } : doc.meta,
+      });
+      if (doc.partId) {
+        try {
+          const res = await fetch(partUrl(doc.partId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parametric }),
+          });
+          if (res.ok) {
+            const meta = (await res.json()) as PartSummary;
+            setActiveDocFields({ meta });
+          }
+        } catch {
+          /* best-effort: local state already updated */
+        }
+      }
     },
 
     editActiveCode: (code) => {
@@ -554,7 +587,16 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       set((s) => {
         const openDocs = s.openDocs.map((d) =>
           d.clientId === activeClientId
-            ? { ...d, partId, meta, named, pendingName, language: data.language, saveState: "saved" as const }
+            ? {
+                ...d,
+                partId,
+                meta,
+                named,
+                pendingName,
+                language: data.language,
+                parametric: data.meta.parametric === true,
+                saveState: "saved" as const,
+              }
             : d,
         );
         return buildState(openDocs, s.activeClientId);

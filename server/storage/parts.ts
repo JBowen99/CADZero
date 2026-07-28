@@ -42,6 +42,7 @@ function readMeta(db: DatabaseType): PartMeta | null {
     createdAt: Number(m.get("created_at") ?? 0),
     updatedAt: Number(m.get("updated_at") ?? 0),
     headRevId: head && head.length > 0 ? head : null,
+    parametric: m.get("parametric") === "1",
   };
 }
 
@@ -64,6 +65,7 @@ export interface CreatePartInput {
   name: string;
   type?: PartType;
   language?: BackendName;
+  parametric?: boolean;
 }
 
 export function createPart(
@@ -73,10 +75,12 @@ export function createPart(
   const id = randomUUID();
   const now = Date.now();
   const db = openPartDb(partPath(workspaceRoot, id));
+  const parametric = input.parametric === true;
   setMeta(db, "id", id);
   setMeta(db, "name", input.name);
   setMeta(db, "type", input.type ?? "part");
   setMeta(db, "language", input.language ?? "openscad");
+  setMeta(db, "parametric", parametric ? "1" : "0");
   setMeta(db, "created_at", now);
   setMeta(db, "updated_at", now);
   setMeta(db, "head_rev_id", null);
@@ -85,6 +89,7 @@ export function createPart(
     name: input.name,
     type: input.type ?? "part",
     language: input.language ?? "openscad",
+    parametric,
     createdAt: now,
     updatedAt: now,
     headRevId: null,
@@ -116,13 +121,16 @@ export function getPart(
 export function updatePartMeta(
   workspaceRoot: string,
   id: string,
-  patch: Partial<Pick<PartMeta, "name" | "type">>,
+  patch: Partial<Pick<PartMeta, "name" | "type" | "parametric">>,
 ): PartMeta | null {
   const file = partPath(workspaceRoot, id);
   if (!existsSync(file)) return null;
   const db = openPartDb(file);
   if (patch.name !== undefined) setMeta(db, "name", patch.name);
   if (patch.type !== undefined) setMeta(db, "type", patch.type);
+  if (patch.parametric !== undefined) {
+    setMeta(db, "parametric", patch.parametric ? "1" : "0");
+  }
   setMeta(db, "updated_at", Date.now());
   return readMeta(db);
 }

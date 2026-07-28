@@ -171,6 +171,7 @@ export interface PartSummary {
   createdAt: number;
   updatedAt: number;
   headRevId: string | null;
+  parametric?: boolean;
 }
 
 export interface RevisionDTO {
@@ -223,4 +224,60 @@ export interface CreatePartRequest {
   name?: string;
   type?: PartType;
   language?: BackendName;
+  parametric?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Parametric model metadata (OpenSCAD Customizer convention + @op markers)
+// ---------------------------------------------------------------------------
+
+export type ParamType = "number" | "string" | "bool" | "choice";
+
+export interface ParamDef {
+  name: string;
+  value: number | string | boolean;
+  type: ParamType;
+  public: boolean;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: string[];
+  desc?: string;
+  line: number;
+}
+
+export type OpKind =
+  | "sketch"
+  | "extrude"
+  | "cut"
+  | "revolve"
+  | "fillet"
+  | "chamfer"
+  | "pattern"
+  | "shell"
+  | "hole"
+  | "offset"
+  | "hull"
+  | "union"
+  | "intersection"
+  | "mirror"
+  | "rotate"
+  | "translate"
+  | "scale"
+  | "final"
+  | "other";
+
+export interface OpNode {
+  id: string;
+  kind: OpKind;
+  rawKind: string;
+  name: string;
+  order: number;
+  line: number;
+}
+
+export interface ScadMeta {
+  params: ParamDef[];
+  ops: OpNode[];
 }

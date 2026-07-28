@@ -9,6 +9,7 @@ import {
   Pencil,
   Save,
   Settings,
+  SlidersHorizontal,
   Sun,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -37,6 +38,7 @@ import { PartsBrowser } from "~/components/PartsBrowser";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { SettingsDialog } from "~/components/SettingsDialog";
 import { WindowControls } from "~/components/WindowControls";
+import { cn } from "~/lib/utils";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
 const BUILD123D_ONLY_FORMATS: ExportFormat[] = ["step"];
@@ -107,6 +109,34 @@ function PartNameControl() {
         </button>
       </TooltipTrigger>
       <TooltipContent>Rename part</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ParametricToggle() {
+  const parametric = useDocumentsStore((s) => s.activeDocParametric) ?? false;
+  const setParametric = useDocumentsStore((s) => s.setParametric);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => void setParametric(!parametric)}
+          aria-pressed={parametric}
+          className={cn(
+            "flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
+            parametric
+              ? "border-primary bg-primary/10 text-primary"
+              : "bg-background/60 text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <SlidersHorizontal className="size-3.5" />
+          <span>Parametric</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {parametric ? "Parametric mode on" : "Enable parametric mode"}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -353,6 +383,10 @@ export function Toolbar() {
             Backend is locked at part creation
           </TooltipContent>
         </Tooltip>
+
+        {language === "openscad" && activeId && (
+          <ParametricToggle />
+        )}
       </div>
 
       <WindowControls />
