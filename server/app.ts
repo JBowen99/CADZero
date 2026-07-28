@@ -30,7 +30,8 @@ import type {
   MeasureResult,
   Topology,
   TopologySelection,
-} from "./renderer/topology";import { storeMesh, getMesh, getTopology } from "./mesh-store";
+} from "./renderer/topology";
+import { storeMesh, getMesh, getTopology } from "./mesh-store";
 import { listAvailableModels, resolveModelId, setKeyResolver } from "./models";
 import {
   getWorkspaceRoot,
