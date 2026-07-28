@@ -22,8 +22,15 @@ import { buildInstructions, type ChatMode } from "./system-prompt";
 import type { BackendName } from "./backend-types";
 import { checkOpenScad } from "./backends/openscad";
 import { checkBuild123d } from "./backends/build123d";
-import { exportFor, renderFor } from "./backends";
-import type { Topology, TopologySelection } from "./renderer/topology";
+import { exportFor, measureFor, renderFor } from "./backends";
+import { exportBuild123dFace } from "./backends/build123d";
+import type {
+  MeasureMode,
+  MeasurePick,
+  MeasureResult,
+  Topology,
+  TopologySelection,
+} from "./renderer/topology";
 import { storeMesh, getMesh, getTopology } from "./mesh-store";
 import { listAvailableModels, resolveModelId, setKeyResolver } from "./models";
 import {
@@ -83,6 +90,14 @@ const EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
   "3mf": { ext: "3mf", mime: "model/3mf" },
   step: { ext: "step", mime: "application/step" },
 };
+
+const FACE_EXPORT_FORMATS: Record<string, { ext: string; mime: string }> = {
+  svg: { ext: "svg", mime: "image/svg+xml" },
+  dxf: { ext: "dxf", mime: "image/vnd.dxf" },
+};
+
+const FACE_ID_PATTERN = /^f\d+$/;
+const ENTITY_ID_PATTERN = /^[fev]\d+$/;
 
 function sanitizeFileName(name: string): string {
   const cleaned = name.trim().replace(/[^\w\-.]+/g, "_").replace(/_+/g, "_");
@@ -343,6 +358,132 @@ app.get("/api/parts/:id/export/:format", async (c) => {
     "Content-Type": spec.mime,
     "Content-Disposition": `attachment; filename="${filename}"`,
   });
+});
+
+app.get("/api/parts/:id/faces/:faceId/export/:format", async (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const partId = c.req.param("id");
+  const faceId = c.req.param("faceId");
+  const format = c.req.param("format").toLowerCase();
+  const spec = FACE_EXPORT_FORMATS[format];
+  if (!spec) {
+    return c.json({ error: `unsupported face export format: ${format}` }, 400);
+  }
+  if (!FACE_ID_PATTERN.test(faceId)) {
+    return c.json({ error: `invalid face id: ${faceId}` }, 400);
+  }
+
+  const revId = c.req.query("revId");
+  let code: string | null = null;
+  let exportLanguage: BackendName = "openscad";
+  if (revId) {
+    const rev = getRevision(root, partId, revId);
+    code = rev?.code ?? null;
+    exportLanguage = rev?.language ?? "openscad";
+  } else {
+    const head = getHeadWithMesh(root, partId);
+    code = head?.code ?? null;
+    exportLanguage = head?.language ?? "openscad";
+  }
+  if (!code) {
+    return c.json({ error: "part has no code to export" }, 400);
+  }
+  if (exportLanguage !== "build123d") {
+    return c.json(
+      { error: "Face export requires a Build123D part (B-rep kernel)." },
+      400,
+    );
+  }
+
+  const rendered = await exportBuild123dFace(code, faceId, spec.ext);
+  if (!rendered.ok || !rendered.data) {
+    return c.json(
+      {
+        error: "face export failed",
+        stderr: rendered.stderr || "unknown error",
+      },
+      400,
+    );
+  }
+
+  const meta = getPart(root, partId);
+  const filename = `${sanitizeFileName(meta?.name ?? "model")}-Face_${faceId}.${spec.ext}`;
+  return c.body(new Uint8Array(rendered.data), 200, {
+    "Content-Type": spec.mime,
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+});
+
+app.post("/api/parts/:id/measure", async (c) => {
+  const root = workspaceOr400(c);
+  if (typeof root !== "string") return root;
+  const partId = c.req.param("id");
+  const body: {
+    picks?: unknown;
+    mode?: unknown;
+    revId?: string;
+  } = await c.req.json().catch(() => ({}));
+
+  if (!Array.isArray(body.picks) || body.picks.length === 0) {
+    return c.json({ error: "picks (non-empty array) required" }, 400);
+  }
+  const picks: MeasurePick[] = (body.picks as unknown[])
+    .map((p) => {
+      if (!p || typeof p !== "object") return null;
+      const o = p as { kind?: unknown; id?: unknown };
+      if (
+        (o.kind !== "face" && o.kind !== "edge" && o.kind !== "vertex") ||
+        typeof o.id !== "string" ||
+        !ENTITY_ID_PATTERN.test(o.id)
+      ) {
+        return null;
+      }
+      return { kind: o.kind, id: o.id } satisfies MeasurePick;
+    })
+    .filter((p): p is MeasurePick => p !== null);
+
+  if (picks.length === 0) {
+    return c.json({ error: "picks must be {kind, id} entities" }, 400);
+  }
+  const mode: MeasureMode =
+    body.mode === "single" || body.mode === "chain"
+      ? body.mode
+      : "pair";
+
+  const revId = c.req.query("revId") || (typeof body.revId === "string" ? body.revId : undefined);
+  let code: string | null = null;
+  let language: BackendName = "openscad";
+  if (revId) {
+    const rev = getRevision(root, partId, revId);
+    code = rev?.code ?? null;
+    language = rev?.language ?? "openscad";
+  } else {
+    const head = getHeadWithMesh(root, partId);
+    code = head?.code ?? null;
+    language = head?.language ?? "openscad";
+  }
+  if (!code) {
+    return c.json({ error: "part has no code to measure" }, 400);
+  }
+  if (language !== "build123d") {
+    return c.json(
+      { error: "Measurement requires a Build123D part (B-rep kernel)." },
+      400,
+    );
+  }
+
+  const out = await measureFor(language, code, picks, mode);
+  if (!out.ok) {
+    return c.json(
+      {
+        error: "measurement failed",
+        stderr: out.stderr || "unknown error",
+      },
+      400,
+    );
+  }
+  return c.json({ results: out.results as MeasureResult[] });
 });
 
 app.get("/api/parts/:id/revisions", (c) => {
@@ -623,11 +764,12 @@ interface ChatRequestBody {
   language?: BackendName;
   partId?: string | null;
   selection?: TopologySelection[];
+  measurements?: MeasureResult[];
   codeExternallyModified?: boolean;
 }
 
 app.post("/api/chat", async (c) => {
-  const { messages, mode, model, cadCode, language, partId, selection, codeExternallyModified } =
+  const { messages, mode, model, cadCode, language, partId, selection, measurements, codeExternallyModified } =
     await c.req.json<ChatRequestBody>();
 
   const safeMode: ChatMode =
@@ -635,6 +777,7 @@ app.post("/api/chat", async (c) => {
   const safeLanguage: BackendName = language ?? "openscad";
   const modelId = await resolveModelId(model);
   const safeSelection = Array.isArray(selection) ? selection : [];
+  const safeMeasurements = Array.isArray(measurements) ? measurements : [];
 
   let workspaceRoot: string | null = null;
   try {
@@ -663,6 +806,7 @@ app.post("/api/chat", async (c) => {
       safeLanguage,
       safeSelection,
       codeExternallyModified === true,
+      safeMeasurements,
     ),
     messages: await convertToModelMessages(messages),
     tools: {

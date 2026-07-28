@@ -14,6 +14,7 @@ import { ChatProvider } from "~/lib/ai-chat";
 import { useModelSync } from "~/lib/useModelSync";
 import { useTabChatSync } from "~/lib/useTabChatSync";
 import { useChatPersist } from "~/lib/useChatPersist";
+import { useMeasureDispatch } from "~/lib/useMeasureDispatch";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -39,6 +40,7 @@ function Workspace() {
   useModelSync();
   useTabChatSync();
   useChatPersist();
+  useMeasureDispatch();
 
   const initWs = useWorkspaceStore((s) => s.init);
   const wsInitialized = useWorkspaceStore((s) => s.initialized);

@@ -34,10 +34,14 @@ export function ExportDialog() {
       >
         <DialogHeader className="items-center text-center">
           <Loader2 className="size-8 animate-spin text-primary" />
-          <DialogTitle>Exporting model…</DialogTitle>
+          <DialogTitle>
+            {exportJob?.kind === "face" ? "Exporting face…" : "Exporting model…"}
+          </DialogTitle>
           <DialogDescription>
             {exportJob
-              ? `Rendering ${exportJob.filename} with OpenSCAD. This can take a few seconds for complex models.`
+              ? exportJob.kind === "face"
+                ? `Projecting ${exportJob.subject ?? ""} to ${exportJob.format.toUpperCase()} (${exportJob.filename}).`
+                : `Rendering ${exportJob.filename} with the CAD backend. This can take a few seconds for complex models.`
               : ""}
           </DialogDescription>
         </DialogHeader>

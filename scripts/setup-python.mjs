@@ -113,10 +113,11 @@ if (existsSync(pyBin) && !FORCE) {
 console.log("==> Installing build123d");
 run(pyBin, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"]);
 run(pyBin, ["-m", "pip", "install", "--quiet", `build123d==${BUILD123D_VERSION}`]);
+run(pyBin, ["-m", "pip", "install", "--quiet", "ezdxf"]);
 
 console.log("==> Verifying imports");
 run(pyBin, [
   "-c",
-  "import build123d; import OCP; print('build123d', build123d.__version__, '/ OCP OK')",
+  "import build123d; import OCP; import ezdxf; print('build123d', build123d.__version__, '/ OCP OK / ezdxf', ezdxf.__version__)",
 ]);
 console.log(`==> Done. Backend will spawn: ${pyBin}`);

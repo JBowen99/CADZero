@@ -13,11 +13,23 @@ export interface AppConfig {
   workspaceRoot: string | null;
 }
 
+export interface LightingSettings {
+  ambientIntensity: number;
+  directionalIntensity: number;
+  azimuth: number;
+  elevation: number;
+  roughness: number;
+  metalness: number;
+  rimLight: boolean;
+  rimIntensity: number;
+}
+
 export interface AppSettings {
   model?: string | null;
   defaultBackend?: BackendName;
   panelSplit?: number;
-  viewMode?: string;
+  viewMode?: "solid" | "shaded" | "wireframe";
+  lighting?: LightingSettings;
   gridVisible?: boolean;
   gizmoVisible?: boolean;
   lastOpenDocIds?: string[];

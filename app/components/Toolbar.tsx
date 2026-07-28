@@ -28,10 +28,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
-import type { ExportFormat } from "~/types";
+import type { ExportFormat, FaceExportFormat } from "~/types";
 import { useModelStore } from "~/store/useModelStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
+import { useSelectionStore } from "~/store/useSelectionStore";
 import { PartsBrowser } from "~/components/PartsBrowser";
 import { WorkspaceSetup } from "~/components/WorkspaceSetup";
 import { SettingsDialog } from "~/components/SettingsDialog";
@@ -39,6 +40,7 @@ import { WindowControls } from "~/components/WindowControls";
 
 const EXPORT_FORMATS: ExportFormat[] = ["stl", "obj", "3mf"];
 const BUILD123D_ONLY_FORMATS: ExportFormat[] = ["step"];
+const FACE_EXPORT_FORMATS: FaceExportFormat[] = ["svg", "dxf"];
 
 function PartNameControl() {
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
@@ -114,6 +116,7 @@ export function Toolbar() {
   const isDark = resolvedTheme === "dark";
   const language = useModelStore((s) => s.language);
   const exportModel = useModelStore((s) => s.exportModel);
+  const exportFace = useModelStore((s) => s.exportFace);
   const isExporting = useModelStore((s) => s.isExporting);
   const setNewPartDialogOpen = useDocumentsStore((s) => s.setNewPartDialogOpen);
   const saveActiveNow = useDocumentsStore((s) => s.saveActiveNow);
@@ -121,6 +124,11 @@ export function Toolbar() {
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const activeMeta = useDocumentsStore((s) => s.activeMeta);
   const root = useWorkspaceStore((s) => s.root);
+  const selection = useSelectionStore((s) => s.selection);
+  const singleFaceSelection =
+    selection.length === 1 && selection[0].kind === "face"
+      ? selection[0]
+      : null;
 
   const [browserOpen, setBrowserOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -142,6 +150,31 @@ export function Toolbar() {
       );
     } catch (e) {
       toast.error("Export failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleFaceExport = async (format: FaceExportFormat) => {
+    if (!activeId) {
+      toast.error("Build or save the part first — nothing to export yet.");
+      return;
+    }
+    if (!singleFaceSelection) {
+      toast.error("Select exactly one face to export it.");
+      return;
+    }
+    try {
+      const result = await exportFace(format, singleFaceSelection.id, {
+        partId: activeId,
+        revId: previewingRevId ?? undefined,
+        name: activeMeta?.name ?? null,
+      });
+      toast.success(
+        `Exported ${result.filename} (${result.sizeBytes.toLocaleString()} bytes)`,
+      );
+    } catch (e) {
+      toast.error("Face export failed", {
         description: e instanceof Error ? e.message : "Unknown error",
       });
     }
@@ -275,6 +308,25 @@ export function Toolbar() {
                   .{format}
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     B-rep
+                  </span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                {singleFaceSelection
+                  ? `Selected ${singleFaceSelection.label}`
+                  : "Select a face to export it"}
+              </DropdownMenuLabel>
+              {FACE_EXPORT_FORMATS.map((format) => (
+                <DropdownMenuItem
+                  key={format}
+                  disabled={!singleFaceSelection}
+                  onSelect={() => void handleFaceExport(format)}
+                  className="capitalize"
+                >
+                  .{format}
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    2D
                   </span>
                 </DropdownMenuItem>
               ))}

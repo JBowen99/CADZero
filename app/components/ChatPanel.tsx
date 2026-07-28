@@ -19,6 +19,7 @@ import {
 import { AssistantStatusMessage } from "./AssistantStatusMessage";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionIndicator } from "./SelectionIndicator";
+import { MeasureContextIndicator } from "./MeasureContextIndicator";
 import {
   assistantHasVisibleParts,
   describeChatError,
@@ -31,6 +32,7 @@ import { useChatModeStore } from "~/store/useChatModeStore";
 import { useSettingsStore, type AvailableModel } from "~/store/useSettingsStore";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useSelectionStore } from "~/store/useSelectionStore";
+import { useMeasureStore } from "~/store/useMeasureStore";
 import { modelsUrl } from "~/lib/api";
 import { cn } from "~/lib/utils";
 import { buildImageParts, extractImageFiles, IMAGE_LIMITS } from "~/lib/images";
@@ -124,6 +126,7 @@ export function ChatPanel() {
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const clearSelection = useSelectionStore((s) => s.clear);
+  const clearMeasureContext = useMeasureStore((s) => s.clearContext);
   const hasActiveDoc = useDocumentsStore((s) => s.openDocs.length > 0);
   const setNewPartDialogOpen = useDocumentsStore(
     (s) => s.setNewPartDialogOpen,
@@ -196,6 +199,7 @@ export function ChatPanel() {
     setImages([]);
     setValue("");
     clearSelection();
+    clearMeasureContext();
   };
 
   const guardedRegenerate = async () => {
@@ -294,6 +298,7 @@ export function ChatPanel() {
             onPick={(p) => {
               void sendMessage({ text: p });
               clearSelection();
+              clearMeasureContext();
             }}
           />
         </div>
@@ -357,8 +362,9 @@ export function ChatPanel() {
             Drop images to attach
           </div>
         )}
-        <div className="mb-2">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
           <SelectionIndicator align="start" side="top" />
+          <MeasureContextIndicator align="start" side="top" />
         </div>
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">

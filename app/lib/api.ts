@@ -36,9 +36,20 @@ export const exportUrl = (
   `${API_BASE}/parts/${id}/export/${format}${
     revId ? `?revId=${encodeURIComponent(revId)}` : ""
   }`;
+export const exportFaceUrl = (
+  id: string,
+  faceId: string,
+  format: string,
+  revId?: string | null,
+) =>
+  `${API_BASE}/parts/${id}/faces/${encodeURIComponent(faceId)}/export/${format}${
+    revId ? `?revId=${encodeURIComponent(revId)}` : ""
+  }`;
 export const revisionsUrl = (id: string) => `${partUrl(id)}/revisions`;
 export const revisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}`;
 export const restoreRevisionUrl = (id: string, revId: string) =>
   `${partUrl(id)}/revisions/${revId}/restore`;
 export const messagesUrl = (id: string) => `${partUrl(id)}/messages`;
+export const measureUrl = (id: string, revId?: string | null) =>
+  `${partUrl(id)}/measure${revId ? `?revId=${encodeURIComponent(revId)}` : ""}`;

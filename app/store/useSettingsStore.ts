@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { AppSettings, BackendName } from "~/types";
+import type {
+  AppSettings,
+  BackendName,
+  LightingSettings,
+  ViewMode,
+} from "~/types";
 import { settingsUrl } from "~/lib/api";
 
 export interface AvailableModel {
@@ -8,14 +13,31 @@ export interface AvailableModel {
   supportsVision?: boolean;
 }
 
+export const DEFAULT_VIEW_MODE: ViewMode = "solid";
+
+export const DEFAULT_LIGHTING: LightingSettings = {
+  ambientIntensity: 1.0,
+  directionalIntensity: 0.5,
+  azimuth: 53,
+  elevation: 50,
+  roughness: 0.95,
+  metalness: 0,
+  rimLight: false,
+  rimIntensity: 0.3,
+};
+
 interface SettingsState {
   model: string | null;
   defaultBackend: BackendName | null;
+  viewMode: ViewMode;
+  lighting: LightingSettings;
   lastOpenDocIds: string[];
   loaded: boolean;
   load: () => Promise<void>;
   setModel: (id: string | null) => void;
   setDefaultBackend: (backend: BackendName) => void;
+  setViewMode: (mode: ViewMode) => void;
+  setLighting: (patch: Partial<LightingSettings>) => void;
   setOpenDocOrder: (ids: string[]) => void;
 }
 
@@ -31,6 +53,8 @@ function scheduleSave(): void {
       body: JSON.stringify({
         model: s.model,
         defaultBackend: s.defaultBackend ?? undefined,
+        viewMode: s.viewMode,
+        lighting: s.lighting,
         lastOpenDocIds: s.lastOpenDocIds,
       } satisfies AppSettings),
     }).catch(() => {
@@ -42,6 +66,8 @@ function scheduleSave(): void {
 export const useSettingsStore = create<SettingsState>((set) => ({
   model: null,
   defaultBackend: null,
+  viewMode: DEFAULT_VIEW_MODE,
+  lighting: DEFAULT_LIGHTING,
   lastOpenDocIds: [],
   loaded: false,
 
@@ -56,6 +82,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({
         model: data.model ?? null,
         defaultBackend: data.defaultBackend ?? null,
+        viewMode: data.viewMode ?? DEFAULT_VIEW_MODE,
+        lighting: { ...DEFAULT_LIGHTING, ...(data.lighting ?? {}) },
         lastOpenDocIds: data.lastOpenDocIds ?? [],
         loaded: true,
       });
@@ -71,6 +99,16 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   setDefaultBackend: (backend) => {
     set({ defaultBackend: backend });
+    scheduleSave();
+  },
+
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
+    scheduleSave();
+  },
+
+  setLighting: (patch) => {
+    set((s) => ({ lighting: { ...s.lighting, ...patch } }));
     scheduleSave();
   },
 

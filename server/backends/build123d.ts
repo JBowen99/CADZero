@@ -8,12 +8,13 @@ import { join } from "node:path";
 import { config } from "../env";
 import { BUILD123D_WORKER_SOURCE } from "./build123d_worker_asset";
 import type { TriangleMesh } from "../renderer/stl";
-import type { Topology } from "../renderer/topology";
+import type { MeasureMode, MeasurePick, MeasureResult, Topology } from "../renderer/topology";
 import type { ExportResult, RenderResult } from "./types";
 
 const RENDER_TIMEOUT_MS = 30_000;
 const EXPORT_TIMEOUT_MS = 90_000;
 const VERSION_TIMEOUT_MS = 30_000;
+const MEASURE_TIMEOUT_MS = 30_000;
 
 let workerScriptPath: string | null = null;
 
@@ -185,7 +186,12 @@ class Build123DWorker {
     await this.spawn();
   }
 
-  async request(code: string, outExt: string, timeoutMs: number): Promise<Buffer> {
+  async request(
+    code: string,
+    outExt: string,
+    timeoutMs: number,
+    faceId?: string,
+  ): Promise<Buffer> {
     await this.ensure();
     if (!this.proc || !this.proc.stdin) {
       throw new Error("Build123D worker is not running.");
@@ -194,7 +200,13 @@ class Build123DWorker {
     await mkdir(dir, { recursive: true });
     const id = randomUUID();
     const outPath = join(dir, `${id}.${outExt}`);
-    const req = JSON.stringify({ id, code, out_path: outPath, format: outExt });
+    const req = JSON.stringify({
+      id,
+      code,
+      out_path: outPath,
+      format: outExt,
+      ...(faceId ? { face_id: faceId } : {}),
+    });
 
     const result = await new Promise<WorkerResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -280,6 +292,60 @@ class Build123DWorker {
     await this.ensure();
     return "ok";
   }
+
+  async measure(
+    code: string,
+    picks: MeasurePick[],
+    mode: MeasureMode,
+    timeoutMs: number,
+  ): Promise<MeasureResult[]> {
+    await this.ensure();
+    if (!this.proc || !this.proc.stdin) {
+      throw new Error("Build123D worker is not running.");
+    }
+    const dir = join(tmpdir(), "cadzero");
+    await mkdir(dir, { recursive: true });
+    const id = randomUUID();
+    const outPath = join(dir, `${id}.measure.json`);
+    const req = JSON.stringify({
+      id,
+      code,
+      out_path: outPath,
+      format: "measure",
+      picks,
+      mode,
+    });
+
+    const result = await new Promise<WorkerResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const err = new Error("Build123D measure timed out.");
+        const p = this.pending.get(id);
+        if (p) {
+          this.pending.delete(id);
+          p.reject(err);
+        }
+        this.failAll(err);
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc!.stdin!.write(req + "\n");
+    });
+
+    if (!result.ok) {
+      rmSync(outPath, { force: true });
+      throw new Error(result.error || "Build123D measure failed.");
+    }
+    try {
+      const raw = await readFile(outPath, "utf8");
+      const parsed = JSON.parse(raw) as { results: MeasureResult[] };
+      return parsed.results ?? [];
+    } catch (e) {
+      throw new Error(
+        `Build123D measure returned no readable result: ${(e as Error).message}`,
+      );
+    } finally {
+      rmSync(outPath, { force: true });
+    }
+  }
 }
 
 const worker = new Build123DWorker();
@@ -305,6 +371,59 @@ export async function exportBuild123d(
   const start = Date.now();
   try {
     const data = await worker.request(code, ext, EXPORT_TIMEOUT_MS);
+    return { ok: true, data, stderr: "", durationMs: Date.now() - start };
+  } catch (e) {
+    return {
+      ok: false,
+      stderr: (e as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+export interface MeasureOk {
+  ok: true;
+  results: MeasureResult[];
+  stderr: "";
+  durationMs: number;
+}
+
+export interface MeasureFail {
+  ok: false;
+  results: [];
+  stderr: string;
+  durationMs: number;
+}
+
+export type MeasureOutput = MeasureOk | MeasureFail;
+
+export async function measureBuild123d(
+  code: string,
+  picks: MeasurePick[],
+  mode: MeasureMode,
+): Promise<MeasureOutput> {
+  const start = Date.now();
+  try {
+    const results = await worker.measure(code, picks, mode, MEASURE_TIMEOUT_MS);
+    return { ok: true, results, stderr: "", durationMs: Date.now() - start };
+  } catch (e) {
+    return {
+      ok: false,
+      results: [],
+      stderr: (e as Error).message,
+      durationMs: Date.now() - start,
+    };
+  }
+}
+
+export async function exportBuild123dFace(
+  code: string,
+  faceId: string,
+  ext: string,
+): Promise<ExportResult> {
+  const start = Date.now();
+  try {
+    const data = await worker.request(code, ext, EXPORT_TIMEOUT_MS, faceId);
     return { ok: true, data, stderr: "", durationMs: Date.now() - start };
   } catch (e) {
     return {

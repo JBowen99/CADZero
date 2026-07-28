@@ -1,5 +1,5 @@
 import type { BackendName } from "./backend-types";
-import type { TopologySelection } from "./renderer/topology";
+import type { MeasureResult, TopologySelection } from "./renderer/topology";
 
 export type ChatMode = "plan" | "chat" | "build";
 
@@ -59,12 +59,42 @@ If the tool returns success, stop — do not call it again. If it returns an err
 Always edit the existing model's code (the current script provided in these instructions) rather than starting over, unless the user explicitly asks for a new part. Keep all prior parameters unless the user asked to change them. Never resurrect an older version of the script from the conversation history.`,
 };
 
+function formatMeasureResult(r: MeasureResult): string {
+  if (r.kind === "single") {
+    const e = r.entity;
+    if (e.kind === "face") {
+      const parts = [`area ${e.area?.toFixed(3)} mm²`];
+      if (e.perimeter !== undefined) parts.push(`perimeter ${e.perimeter.toFixed(3)} mm`);
+      if (e.normal) parts.push(`normal [${e.normal.map((n) => n.toFixed(3)).join(", ")}]`);
+      if (e.radius !== undefined && e.radius !== null) parts.push(`radius ${e.radius.toFixed(3)} mm`);
+      return `Face ${e.id}: ${parts.join(", ")}`;
+    }
+    if (e.kind === "edge") {
+      const parts = [`length ${e.length?.toFixed(3)} mm`];
+      if (e.isArc && e.radius !== undefined && e.radius !== null) {
+        parts.push(`arc radius ${e.radius.toFixed(3)} mm`);
+      }
+      return `Edge ${e.id}: ${parts.join(", ")}`;
+    }
+    return `Vertex ${e.id}: position (${e.position?.map((n) => n.toFixed(3)).join(", ")})`;
+  }
+  // pair
+  const p = r.pair;
+  const parts = [
+    `distance ${p.distance.toFixed(3)} mm`,
+    `Δx ${p.delta[0].toFixed(3)}, Δy ${p.delta[1].toFixed(3)}, Δz ${p.delta[2].toFixed(3)}`,
+  ];
+  if (p.angleDeg !== undefined) parts.push(`angle ${p.angleDeg.toFixed(2)}°`);
+  return `${p.a.kind} ${p.a.id} ↔ ${p.b.kind} ${p.b.id}: ${parts.join(", ")}`;
+}
+
 export function buildInstructions(
   mode: ChatMode,
   cadCode: string | null,
   language: BackendName,
   selection: TopologySelection[] = [],
   codeExternallyModified = false,
+  measurements: MeasureResult[] = [],
 ): string {
   const sections = [BASE_PROMPTS[language], "", MODE_PROMPTS[mode]];
   if (cadCode && cadCode.trim()) {
@@ -86,6 +116,14 @@ export function buildInstructions(
     sections.push(
       "",
       "The user has selected these entities on the current model. Treat them as the EXPLICIT target of any operation they ask for (e.g. 'fillet this' = fillet the selected edge(s); 'drill here' = put a hole on the selected face at its center):",
+      lines.join("\n"),
+    );
+  }
+  if (measurements.length > 0) {
+    const lines = measurements.map((m) => `- ${formatMeasureResult(m)}`);
+    sections.push(
+      "",
+      "The user has measured these entities on the current model. Use these values as ground-truth dimensions when the user asks you to adjust or reference them (e.g. 'make this 20 mm' means change the measured distance/length/area to 20):",
       lines.join("\n"),
     );
   }
