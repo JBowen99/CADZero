@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { toast } from "sonner";
 import type {
   BackendName,
+  OpNode,
   PartDocument,
   PartSummary,
   RevisionDetail,
@@ -24,6 +25,7 @@ import {
   topologyUrl,
 } from "~/lib/api";
 import { deserializeMessages } from "~/lib/chat-persist";
+import { buildPreviewCode } from "~/lib/op-preview";
 import { useModelStore } from "~/store/useModelStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 
@@ -39,6 +41,8 @@ export interface OpenDoc {
   meshCode: string | null;
   language: BackendName;
   parametric: boolean;
+  previewingOpId: string | null;
+  previewingOpName: string | null;
   chat: UIMessage[];
   chatLoaded: boolean;
   chatLoading: boolean;
@@ -86,6 +90,8 @@ interface DocumentsState {
   adoptBuiltPart: (partId: string) => Promise<void>;
   previewRevision: (revId: string) => Promise<void>;
   exitPreview: () => Promise<void>;
+  previewOp: (op: OpNode) => Promise<void>;
+  exitOpPreview: () => void;
   restoreRevision: (revId: string) => Promise<void>;
   saveActiveNow: () => Promise<void>;
   resolveName: (name: string) => Promise<void>;
@@ -219,6 +225,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         parametric: data.meta.parametric === true,
+        previewingOpId: null,
+        previewingOpName: null,
         chat: [],
         chatLoaded: false,
         chatLoading: false,
@@ -258,6 +266,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: null,
         language,
         parametric,
+        previewingOpId: null,
+        previewingOpName: null,
         chat: [],
         chatLoaded: true,
         chatLoading: false,
@@ -655,6 +665,61 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         language: data.language,
         codeDirty: false,
       });
+    },
+
+    previewOp: async (op) => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc || !doc.cadCode.trim()) return;
+      if (doc.previewingOpId === op.id) {
+        get().exitOpPreview();
+        return;
+      }
+      const previewCode = buildPreviewCode(doc.cadCode, op, doc.language);
+      if (!previewCode) {
+        if (doc.previewingOpId) get().exitOpPreview();
+        return;
+      }
+      useModelStore.getState().setRendering(true);
+      try {
+        const res = await fetch(renderUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: previewCode, language: doc.language }),
+        });
+        const out = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          meshId?: string;
+        } | null;
+        if (!out?.ok?.toString() || !out.meshId) return;
+        const meshRes = await fetch(meshUrl(out.meshId));
+        if (!meshRes.ok) return;
+        const mesh = await decodeMesh(meshRes);
+        useModelStore.getState().setModel(mesh, doc.cadCode, doc.language, null);
+        setActiveDocFields({
+          previewingOpId: op.id,
+          previewingOpName: op.name,
+        });
+      } finally {
+        useModelStore.getState().setRendering(false);
+      }
+    },
+
+    exitOpPreview: () => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc) return;
+      if (doc.mesh) {
+        useModelStore.getState().setModel(
+          doc.mesh,
+          doc.cadCode,
+          doc.language,
+          doc.topology,
+        );
+      }
+      setActiveDocFields({ previewingOpId: null, previewingOpName: null });
     },
 
     restoreRevision: async (revId) => {

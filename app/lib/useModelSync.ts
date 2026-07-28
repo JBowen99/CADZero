@@ -135,6 +135,8 @@ export function useModelSync() {
               meshCode: code,
               language,
               codeDirty: false,
+              previewingOpId: null,
+              previewingOpName: null,
             });
             wasBuildingRef.current = false;
             useModelStore.getState().setBuilding(false);

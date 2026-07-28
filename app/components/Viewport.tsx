@@ -936,6 +936,12 @@ export function Viewport() {
   const persistViewMode = useSettingsStore((s) => s.setViewMode);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
+  const previewingOpName = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.previewingOpName ??
+      null,
+  );
+  const exitOpPreview = useDocumentsStore((s) => s.exitOpPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const openDocsLength = useDocumentsStore((s) => s.openDocs.length);
   const meshStale = useDocumentsStore((s) => {
@@ -1162,6 +1168,23 @@ export function Viewport() {
           >
             <RotateCcw className="size-3" />
             Restore
+          </Button>
+        </div>
+      )}
+      {previewingOpName && (
+        <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs shadow-sm">
+          <span className="font-medium text-primary">
+            Previewing: {previewingOpName}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 px-2 text-[11px]"
+            onClick={() => exitOpPreview()}
+          >
+            <ArrowLeft className="size-3" />
+            Final
           </Button>
         </div>
       )}

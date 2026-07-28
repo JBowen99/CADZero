@@ -275,6 +275,7 @@ export interface OpNode {
   name: string;
   order: number;
   line: number;
+  moduleName?: string;
 }
 
 export interface ModelMeta {

@@ -16,6 +16,7 @@ import {
 import type { OpKind, OpNode } from "~/types";
 import { extractMeta } from "~/lib/model-meta";
 import { useModelStore } from "~/store/useModelStore";
+import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useCodeNavStore } from "~/store/useCodeNavStore";
 import { cn } from "~/lib/utils";
 
@@ -51,10 +52,17 @@ export function FeatureTree() {
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const navigateToLine = useCodeNavStore((s) => s.navigateToLine);
+  const previewOp = useDocumentsStore((s) => s.previewOp);
+  const previewingOpId = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.previewingOpId ??
+      null,
+  );
 
   const handleSelect = (op: OpNode) => {
     setSelected(op.id);
     navigateToLine(op.line);
+    void previewOp(op);
   };
 
   return (
@@ -84,6 +92,7 @@ export function FeatureTree() {
                 key={op.id}
                 op={op}
                 selected={selected === op.id}
+                previewing={previewingOpId === op.id}
                 onSelect={handleSelect}
               />
             ))
@@ -97,10 +106,12 @@ export function FeatureTree() {
 function TreeRow({
   op,
   selected,
+  previewing,
   onSelect,
 }: {
   op: OpNode;
   selected: boolean;
+  previewing: boolean;
   onSelect: (op: OpNode) => void;
 }) {
   const Icon = OP_ICONS[op.kind] ?? CircleDot;
@@ -111,9 +122,11 @@ function TreeRow({
         onClick={() => onSelect(op)}
         className={cn(
           "flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs",
-          selected
-            ? "bg-primary/20 text-primary"
-            : "text-foreground/90 hover:bg-accent/40",
+          previewing
+            ? "bg-primary/30 text-primary ring-1 ring-primary/40"
+            : selected
+              ? "bg-primary/20 text-primary"
+              : "text-foreground/90 hover:bg-accent/40",
         )}
       >
         <Icon className="size-3 shrink-0" />

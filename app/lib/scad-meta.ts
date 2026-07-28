@@ -125,6 +125,7 @@ export function extractScadMeta(code: string): ModelMeta {
 
     const opMatch = OP_RE.exec(line);
     if (opMatch) {
+      const moduleMatch = /module\s+(\w+)/.exec(line);
       ops.push({
         id: `op-${i}`,
         kind: normalizeOpKind(opMatch[1]),
@@ -132,6 +133,7 @@ export function extractScadMeta(code: string): ModelMeta {
         name: opMatch[2]?.trim() || opMatch[1],
         order: ops.length,
         line: i,
+        moduleName: moduleMatch?.[1],
       });
     }
 
