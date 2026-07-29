@@ -79,8 +79,8 @@ function buildBuild123dPreviewCode(code: string, op: OpNode): string | null {
 
   let ctxVar = "ctx";
   for (const line of lines) {
-    const m = /with\s+Build\s*\(\s*\)\s+as\s+(\w+)/.exec(line);
-    if (m) {
+    const m = /with\s+Build\w*\s*\([^)]*\)\s+as\s+(\w+)/.exec(line);
+    if (m && /^\S/.test(line)) {
       ctxVar = m[1];
       break;
     }
