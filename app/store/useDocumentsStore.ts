@@ -727,6 +727,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
           doc.language,
           doc.topology,
         );
+      } else {
+        useModelStore.getState().clearMesh();
       }
       setActiveDocFields({ previewingOpId: null, previewingOpName: null });
     },

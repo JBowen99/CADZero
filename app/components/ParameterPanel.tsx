@@ -159,7 +159,10 @@ function ParamControl({
           min={min}
           max={max}
           step={step}
-          onChange={(e) => onChange(name, Number(e.target.value))}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v)) onChange(name, v);
+          }}
           className="h-7 w-16 text-xs"
         />
       </div>
@@ -214,7 +217,10 @@ function ParamControl({
       <Input
         type="number"
         value={typeof value === "number" ? value : Number(value) || 0}
-        onChange={(e) => onChange(name, Number(e.target.value))}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v)) onChange(name, v);
+        }}
         className="h-7 text-xs"
       />
     );

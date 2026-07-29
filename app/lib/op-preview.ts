@@ -92,14 +92,46 @@ function buildBuild123dPreviewCode(code: string, op: OpNode): string | null {
   if (kept.length === 0) return null;
 
   const hasResult = kept.some((l) => /^\s*result\s*=/.test(l));
-  if (hasResult) return kept.join("\n");
+  if (!hasResult) {
+    const lastTrimmed = kept[kept.length - 1].trimEnd();
+    if (lastTrimmed.endsWith(":")) {
+      const indent = (kept[kept.length - 1].match(/^\s*/) ?? [""])[0];
+      kept.push(indent + "    pass");
+    }
 
-  const lastTrimmed = kept[kept.length - 1].trimEnd();
-  if (lastTrimmed.endsWith(":")) {
-    const indent = (kept[kept.length - 1].match(/^\s*/) ?? [""])[0];
-    kept.push(indent + "    pass");
+    kept.push("", `result = ${ctxVar}.part`);
   }
 
-  kept.push("", `result = ${ctxVar}.part`);
-  return kept.join("\n");
+  const out = kept.join("\n");
+  return isBalanced(out) ? out : null;
+}
+
+function isBalanced(code: string): boolean {
+  let depth = 0;
+  let inString: '"' | "'" | null = null;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (inString) {
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === inString) inString = null;
+      continue;
+    }
+    if (ch === "#") {
+      while (i < code.length && code[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") {
+      depth--;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0 && inString === null;
 }
