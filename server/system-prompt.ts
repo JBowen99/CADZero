@@ -62,11 +62,25 @@ const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the ru
 3. Mark each modeling operation with an \`@op\` marker comment on the line that defines or invokes it, so the feature tree can list it:
    \`\`\`
    module base_profile() square([width, depth]);          // @op:sketch "Base Profile"
-   module pad() linear_extrude(height) base_profile();    // @op:extrude "Pad"
-   module final() difference() { pad(); ... }             // @op:cut "Center Hole"
-   final();                                               // @op:final "Bracket"
+   module with_pad() linear_extrude(8) base_profile();     // @op:extrude "Pad"
+   with_pad();                                             // @op:final "Bracket"
    \`\`\`
    Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+5. CRITICAL — each @op module must be CUMULATIVE: it must incorporate all prior operations by calling the previous module inside the appropriate CSG operation (union/difference/intersection). Do NOT define standalone tool modules (e.g. a module that is just a cylinder). Instead, inline tool geometry directly into the cumulative module that uses it. This lets the application preview the model at any step by rendering that module alone.
+   \`\`\`
+   // WRONG — standalone tool, preview shows just a cylinder:
+   module hole() cylinder(h=99, d=hole_dia);
+   module final() difference() { pad(); hole(); }
+
+   // RIGHT — cumulative, preview shows the plate with the hole:
+   module with_holes() {
+     difference() {
+       with_pad();
+       cylinder(h=99, d=hole_dia);
+     }
+   }
+   \`\`\`
 
 4. Example of a complete parametric script:
    \`\`\`
@@ -85,15 +99,24 @@ const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the ru
 
    /* [Features] */
    module base_profile() square([width, depth], center=true);    // @op:sketch "Base Profile"
-   module pad() linear_extrude(8) base_profile();                // @op:extrude "Pad"
-   module hole() cylinder(h=99, d=hole_dia, $fn=32, center=true); // @op:hole "Center Hole"
-   module final() {
+   module with_pad() {
+     linear_extrude(8) base_profile();
+   }                                                             // @op:extrude "Pad"
+   module with_holes() {
      difference() {
-       pad();
-       hole();
+       with_pad();
+       cylinder(h=99, d=hole_dia, $fn=32, center=true);
      }
-   }
-   final();                                                      // @op:final "Bracket"
+   }                                                             // @op:hole "Center Hole"
+   module with_fillets() {
+     difference() {
+       with_holes();
+       // Corner reliefs for fillet
+       for (x = [-width/2, width/2], y = [-depth/2, depth/2])
+         translate([x, y, 0]) cylinder(h=99, d=fillet_r*2, $fn=32, center=true);
+     }
+   }                                                             // @op:fillet "Corner Fillets"
+   with_fillets();                                               // @op:final "Bracket"
    \`\`\`
 
 Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used.`;
