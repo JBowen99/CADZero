@@ -18,7 +18,7 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, FilePlus2, FolderOpen, Grid2x2, Loader2, Maximize2, RotateCcw, Ruler, Slash, Square, Target, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Box, CircleDot, Compass, Crosshair, FilePlus2, FolderOpen, Loader2, RotateCcw, Ruler, Slash, Square, Target, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -28,6 +28,12 @@ import {
   SolidIcon,
   WireframeIcon,
 } from "~/components/view-mode-icons";
+import {
+  AxesIcon,
+  CubeIcon,
+  FrameIcon,
+  GridPlaneIcon,
+} from "~/components/viewport-icons";
 import { SelectionIndicator } from "~/components/SelectionIndicator";
 import { PartsBrowser } from "~/components/PartsBrowser";
 import { MeasurePanel } from "~/components/MeasurePanel";
@@ -1555,7 +1561,7 @@ export function Viewport() {
                 aria-label="Toggle reference grid"
                 aria-pressed={showGrid}
               >
-                <Grid2x2 className="size-4" />
+                <GridPlaneIcon className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -1578,7 +1584,7 @@ export function Viewport() {
                 aria-label="Toggle reference axes"
                 aria-pressed={showAxes}
               >
-                <Axis3d className="size-4" />
+                <AxesIcon className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -1601,7 +1607,7 @@ export function Viewport() {
                 aria-label="Toggle view cube"
                 aria-pressed={showGizmo}
               >
-                <Compass className="size-4" />
+                <CubeIcon className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -1621,7 +1627,7 @@ export function Viewport() {
                 onClick={() => frameRef.current?.()}
                 aria-label="Frame model"
               >
-                <Maximize2 className="size-4" />
+                <FrameIcon className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Frame model (F)</TooltipContent>
