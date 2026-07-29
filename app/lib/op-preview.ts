@@ -6,7 +6,7 @@ export function buildPreviewCode(
   language: "openscad" | "build123d",
 ): string | null {
   if (language === "openscad") return buildScadPreviewCode(code, op);
-  return null;
+  return buildBuild123dPreviewCode(code, op);
 }
 
 function findModuleName(
@@ -71,5 +71,38 @@ function buildScadPreviewCode(code: string, op: OpNode): string | null {
   }
 
   kept.push("", `${found.name}();`);
+  return kept.join("\n");
+}
+
+function buildBuild123dPreviewCode(code: string, op: OpNode): string | null {
+  const lines = code.split("\n");
+
+  let ctxVar = "ctx";
+  for (const line of lines) {
+    const m = /with\s+Build\s*\(\s*\)\s+as\s+(\w+)/.exec(line);
+    if (m) {
+      ctxVar = m[1];
+      break;
+    }
+  }
+
+  const kept = lines.slice(0, op.line + 1);
+
+  while (kept.length > 0 && kept[kept.length - 1].trim() === "") {
+    kept.pop();
+  }
+
+  if (kept.length === 0) return null;
+
+  const hasResult = kept.some((l) => /^\s*result\s*=/.test(l));
+  if (hasResult) return kept.join("\n");
+
+  const lastTrimmed = kept[kept.length - 1].trimEnd();
+  if (lastTrimmed.endsWith(":")) {
+    const indent = (kept[kept.length - 1].match(/^\s*/) ?? [""])[0];
+    kept.push(indent + "    pass");
+  }
+
+  kept.push("", `result = ${ctxVar}.part`);
   return kept.join("\n");
 }
