@@ -131,11 +131,11 @@ function ParametricToggle() {
           )}
         >
           <SlidersHorizontal className="size-3.5" />
-          <span>Parametric</span>
+          <span>{parametric ? "Parametric" : "Simple"}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent>
-        {parametric ? "Parametric mode on" : "Enable parametric mode"}
+        {parametric ? "Parametric mode — click for simple" : "Simple mode — click for parametric"}
       </TooltipContent>
     </Tooltip>
   );
