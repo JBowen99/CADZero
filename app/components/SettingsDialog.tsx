@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   ExternalLink,
+  Grid3x3,
   KeyRound,
   Lightbulb,
   Loader2,
+  Palette,
   RotateCcw,
   Sun,
 } from "lucide-react";
@@ -22,10 +24,11 @@ import { Slider } from "~/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import { useProvidersStore } from "~/store/useProvidersStore";
 import {
+  DEFAULT_GRID,
   DEFAULT_LIGHTING,
   useSettingsStore,
 } from "~/store/useSettingsStore";
-import type { LightingSettings } from "~/types";
+import type { GridSettings, LightingSettings } from "~/types";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -79,7 +82,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="providers">
               <KeyRound className="size-3.5" />
               Providers
@@ -87,6 +90,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <TabsTrigger value="lighting">
               <Sun className="size-3.5" />
               Lighting
+            </TabsTrigger>
+            <TabsTrigger value="grid">
+              <Grid3x3 className="size-3.5" />
+              Grid
             </TabsTrigger>
           </TabsList>
 
@@ -102,6 +109,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
           <TabsContent value="lighting" className="mt-4">
             <LightingPanel />
+          </TabsContent>
+
+          <TabsContent value="grid" className="mt-4">
+            <GridPanel />
           </TabsContent>
         </Tabs>
 
@@ -288,6 +299,41 @@ function LightingPanel() {
         )}
       </section>
 
+      <section className="space-y-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Rendering
+        </h4>
+        <SliderRow
+          label="Tone mapping exposure"
+          value={lighting.toneMappingExposure}
+          min={0}
+          max={2}
+          step={0.05}
+          onChange={(v) => setLighting({ toneMappingExposure: v })}
+        />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Palette className="size-3" />
+            Soft contact shadow
+          </div>
+          <Button
+            type="button"
+            variant={lighting.contactShadows ? "default" : "outline"}
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            aria-pressed={lighting.contactShadows}
+            onClick={() => setLighting({ contactShadows: !lighting.contactShadows })}
+          >
+            {lighting.contactShadows ? "On" : "Off"}
+          </Button>
+        </div>
+        <ColorRow
+          label="Model color"
+          value={lighting.modelColor}
+          onChange={(v) => setLighting({ modelColor: v })}
+        />
+      </section>
+
       <Button
         variant="ghost"
         size="sm"
@@ -297,6 +343,103 @@ function LightingPanel() {
         <RotateCcw className="size-3.5" />
         Reset to defaults
       </Button>
+    </div>
+  );
+}
+
+function GridPanel() {
+  const grid = useSettingsStore((s) => s.grid);
+  const setGrid = useSettingsStore((s) => s.setGrid);
+
+  return (
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Spacing
+        </h4>
+        <SliderRow
+          label="Cell size"
+          value={grid.cellSize}
+          min={0.5}
+          max={50}
+          step={0.5}
+          format={(v) => `${v}`}
+          onChange={(v) => setGrid({ cellSize: v })}
+        />
+        <SliderRow
+          label="Section size"
+          value={grid.sectionSize}
+          min={5}
+          max={200}
+          step={5}
+          format={(v) => `${v}`}
+          onChange={(v) => setGrid({ sectionSize: v })}
+        />
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Cells stay near these sizes when zoomed in and coarsen automatically
+          as you zoom out so the grid stays readable.
+        </p>
+      </section>
+
+      <section className="space-y-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Orientation
+        </h4>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Grid3x3 className="size-3" />
+            View grid from below
+          </div>
+          <Button
+            type="button"
+            variant={grid.viewFromBelow ? "default" : "outline"}
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            aria-pressed={grid.viewFromBelow}
+            onClick={() => setGrid({ viewFromBelow: !grid.viewFromBelow })}
+          >
+            {grid.viewFromBelow ? "On" : "Off"}
+          </Button>
+        </div>
+      </section>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full text-muted-foreground"
+        onClick={() => setGrid(DEFAULT_GRID satisfies GridSettings)}
+      >
+        <RotateCcw className="size-3.5" />
+        Reset to defaults
+      </Button>
+    </div>
+  );
+}
+
+function ColorRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[11px] uppercase text-muted-foreground">
+          {value}
+        </span>
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          className="size-7 cursor-pointer rounded-md border bg-transparent p-0"
+        />
+      </div>
     </div>
   );
 }

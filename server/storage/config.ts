@@ -22,6 +22,15 @@ export interface LightingSettings {
   metalness: number;
   rimLight: boolean;
   rimIntensity: number;
+  toneMappingExposure: number;
+  contactShadows: boolean;
+  modelColor: string;
+}
+
+export interface GridSettings {
+  cellSize: number;
+  sectionSize: number;
+  viewFromBelow: boolean;
 }
 
 export interface AppSettings {
@@ -30,6 +39,7 @@ export interface AppSettings {
   panelSplit?: number;
   viewMode?: "solid" | "shaded" | "wireframe";
   lighting?: LightingSettings;
+  grid?: GridSettings;
   gridVisible?: boolean;
   gizmoVisible?: boolean;
   lastOpenDocIds?: string[];

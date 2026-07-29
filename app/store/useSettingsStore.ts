@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AppSettings,
   BackendName,
+  GridSettings,
   LightingSettings,
   ViewMode,
 } from "~/types";
@@ -24,6 +25,15 @@ export const DEFAULT_LIGHTING: LightingSettings = {
   metalness: 0,
   rimLight: false,
   rimIntensity: 0.3,
+  toneMappingExposure: 1.0,
+  contactShadows: true,
+  modelColor: "#d4d4d8",
+};
+
+export const DEFAULT_GRID: GridSettings = {
+  cellSize: 5,
+  sectionSize: 50,
+  viewFromBelow: false,
 };
 
 interface SettingsState {
@@ -31,6 +41,7 @@ interface SettingsState {
   defaultBackend: BackendName | null;
   viewMode: ViewMode;
   lighting: LightingSettings;
+  grid: GridSettings;
   lastOpenDocIds: string[];
   loaded: boolean;
   load: () => Promise<void>;
@@ -38,6 +49,7 @@ interface SettingsState {
   setDefaultBackend: (backend: BackendName) => void;
   setViewMode: (mode: ViewMode) => void;
   setLighting: (patch: Partial<LightingSettings>) => void;
+  setGrid: (patch: Partial<GridSettings>) => void;
   setOpenDocOrder: (ids: string[]) => void;
 }
 
@@ -55,6 +67,7 @@ function scheduleSave(): void {
         defaultBackend: s.defaultBackend ?? undefined,
         viewMode: s.viewMode,
         lighting: s.lighting,
+        grid: s.grid,
         lastOpenDocIds: s.lastOpenDocIds,
       } satisfies AppSettings),
     }).catch(() => {
@@ -68,6 +81,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   defaultBackend: null,
   viewMode: DEFAULT_VIEW_MODE,
   lighting: DEFAULT_LIGHTING,
+  grid: DEFAULT_GRID,
   lastOpenDocIds: [],
   loaded: false,
 
@@ -84,6 +98,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         defaultBackend: data.defaultBackend ?? null,
         viewMode: data.viewMode ?? DEFAULT_VIEW_MODE,
         lighting: { ...DEFAULT_LIGHTING, ...(data.lighting ?? {}) },
+        grid: { ...DEFAULT_GRID, ...(data.grid ?? {}) },
         lastOpenDocIds: data.lastOpenDocIds ?? [],
         loaded: true,
       });
@@ -109,6 +124,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   setLighting: (patch) => {
     set((s) => ({ lighting: { ...s.lighting, ...patch } }));
+    scheduleSave();
+  },
+
+  setGrid: (patch) => {
+    set((s) => ({ grid: { ...s.grid, ...patch } }));
     scheduleSave();
   },
 

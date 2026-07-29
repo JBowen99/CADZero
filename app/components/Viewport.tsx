@@ -6,9 +6,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Bounds,
+  ContactShadows,
   GizmoHelper,
   Grid,
   Html,
@@ -39,10 +40,15 @@ import { useMeasureStore } from "~/store/useMeasureStore";
 import { useSettingsStore } from "~/store/useSettingsStore";
 import { useRestoreWithNote } from "~/lib/useRestoreWithNote";
 import { buildMesh } from "~/lib/mesh-worker-client";
-import type { BackendName, FaceGroup, LightingSettings, MeasurePick, MeasureResult, Topology, TopologySelection, ViewMode } from "~/types";
+import type { BackendName, FaceGroup, GridSettings, LightingSettings, MeasurePick, MeasureResult, Topology, TopologySelection, ViewMode } from "~/types";
 
 const OPENSCAD_UP_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
 const IDENTITY_ROTATION: [number, number, number] = [0, 0, 0];
+
+// Discrete cell-size tiers (world units) for grid LOD as the camera zooms out.
+const GRID_TIERS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+// Target angular fraction (cellSize / camera distance) the LOD aims to maintain.
+const GRID_LOD_K = 0.02;
 
 interface FitRef {
   current: (() => void) | null;
@@ -219,6 +225,79 @@ function Axes({ length = AXIS_LENGTH }: { length?: number }) {
       <AxisLine dx={0} dy={0} dz={1} color={AXIS_Z} length={length} />
     </>
   );
+}
+
+/** Applies ACES Filmic tone mapping + exposure to the WebGL renderer. */
+function RendererConfig({ exposure }: { exposure: number }) {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.toneMappingExposure = exposure;
+  }, [gl, exposure]);
+  return null;
+}
+
+interface OrbitControlsLike {
+  target?: THREE.Vector3;
+}
+
+/**
+ * Picks an effective grid cell/section size based on camera distance to the
+ * orbit target. Cells stay near the configured base size when zoomed in (floor)
+ * and coarsen through fixed tiers as the camera zooms out, so cells remain
+ * roughly constant on screen. Only triggers a React update when the tier
+ * actually changes.
+ */
+function useGridLod(baseCellSize: number, baseSectionSize: number) {
+  const controls = useThree((s) => s.controls) as OrbitControlsLike | null;
+  const camera = useThree((s) => s.camera);
+  const [lod, setLod] = useState({
+    cellSize: baseCellSize,
+    sectionSize: baseSectionSize,
+  });
+  const baseRef = useRef({ cell: baseCellSize, section: baseSectionSize });
+  baseRef.current = { cell: baseCellSize, section: baseSectionSize };
+  const lastTierRef = useRef(baseCellSize);
+
+  // Reset immediately when the configured base sizes change.
+  useEffect(() => {
+    lastTierRef.current = baseCellSize;
+    setLod({ cellSize: baseCellSize, sectionSize: baseSectionSize });
+  }, [baseCellSize, baseSectionSize]);
+
+  useFrame(() => {
+    const target = controls?.target;
+    if (!target) return;
+    const dist = camera.position.distanceTo(target);
+    const desired = GRID_LOD_K * dist;
+    const base = baseRef.current.cell;
+    let chosen: number;
+    if (desired <= base) {
+      chosen = base;
+    } else {
+      chosen = GRID_TIERS[GRID_TIERS.length - 1];
+      let best = Infinity;
+      for (const t of GRID_TIERS) {
+        if (t < base) continue;
+        const d = Math.abs(t - desired);
+        if (d < best) {
+          best = d;
+          chosen = t;
+        }
+      }
+    }
+    if (chosen !== lastTierRef.current) {
+      lastTierRef.current = chosen;
+      const factor = chosen / base;
+      setLod({
+        cellSize: chosen,
+        sectionSize: Math.max(baseRef.current.section * factor, chosen * 2),
+      });
+    }
+  });
+  // Fade scales with the active tier so the grid still covers the view when
+  // zoomed out (tier 5 -> 320, tier 20 -> 1280, etc.).
+  return { ...lod, fadeDistance: lod.cellSize * 64 };
 }
 
 const HIGHLIGHT_COLOR = "#eab308";
@@ -661,6 +740,7 @@ function Scene({
   contextHoverPicks,
   contextHoverResults,
   lighting,
+  grid,
 }: {
   geometry: THREE.BufferGeometry | null;
   edgePositions: Float32Array | null;
@@ -685,6 +765,7 @@ function Scene({
   contextHoverPicks: MeasurePick[];
   contextHoverResults: MeasureResult[];
   lighting: LightingSettings;
+  grid: GridSettings;
 }) {
   const meshRef = useRef<THREE.Mesh | null>(null);
   const edgesRef = useRef<THREE.BufferGeometry | null>(null);
@@ -715,14 +796,34 @@ function Scene({
     [keyLightPos],
   );
 
+  // Bounding sphere of the active geometry — used to size the shadow camera
+  // and the contact shadow plane. Center projected to the ground (y=0).
+  const bsphere = geometry?.boundingSphere ?? null;
+  const modelRadius = bsphere?.radius ?? 0;
+  const shadowExtent = Math.max(modelRadius * 1.6, 50);
+  const contactCenter: [number, number, number] = [
+    bsphere?.center.x ?? 0,
+    0,
+    bsphere?.center.z ?? 0,
+  ];
+  const contactSize = Math.max(modelRadius * 3, 200);
+
   return (
     <>
+      <RendererConfig exposure={lighting.toneMappingExposure} />
       <ambientLight intensity={lighting.ambientIntensity} />
       <directionalLight
         position={keyLightPos}
         intensity={lighting.directionalIntensity}
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={1}
+        shadow-camera-far={220}
+        shadow-camera-left={-shadowExtent}
+        shadow-camera-right={shadowExtent}
+        shadow-camera-top={shadowExtent}
+        shadow-camera-bottom={-shadowExtent}
+        shadow-bias={-0.0005}
       />
       {lighting.rimLight && (
         <directionalLight position={rimLightPos} intensity={lighting.rimIntensity} />
@@ -752,7 +853,7 @@ function Scene({
                   receiveShadow
                 >
                   <meshStandardMaterial
-                    color="#d4d4d8"
+                    color={lighting.modelColor}
                     metalness={lighting.metalness}
                     roughness={lighting.roughness}
                     polygonOffset={viewMode === "solid"}
@@ -801,18 +902,24 @@ function Scene({
       {showAxes && <Axes />}
 
       {showGrid && (
-        <Grid
-          args={[400, 400]}
-          cellSize={5}
-          cellThickness={0.6}
+        <GridPlane
+          baseCellSize={grid.cellSize}
+          baseSectionSize={grid.sectionSize}
+          viewFromBelow={grid.viewFromBelow}
           cellColor={gridColors?.cell ?? "#9ca3af"}
-          sectionSize={50}
-          sectionThickness={1.2}
           sectionColor={gridColors?.section ?? "#737373"}
-          fadeDistance={320}
-          fadeStrength={1}
-          followCamera={false}
-          infiniteGrid
+        />
+      )}
+
+      {lighting.contactShadows && geometry && (
+        <ContactShadows
+          position={contactCenter}
+          scale={contactSize}
+          far={Math.max(modelRadius * 2, 50)}
+          blur={2.5}
+          opacity={0.45}
+          resolution={1024}
+          color="#000000"
         />
       )}
 
@@ -827,7 +934,7 @@ function Scene({
         enableDamping
         dampingFactor={0.1}
         minDistance={20}
-        maxDistance={600}
+        maxDistance={2000}
         onStart={() => {
           interactingRef.current = true;
         }}
@@ -836,6 +943,39 @@ function Scene({
         }}
       />
     </>
+  );
+}
+
+/** Reference grid whose cell/section size follows the camera distance (LOD). */
+function GridPlane({
+  baseCellSize,
+  baseSectionSize,
+  viewFromBelow,
+  cellColor,
+  sectionColor,
+}: {
+  baseCellSize: number;
+  baseSectionSize: number;
+  viewFromBelow: boolean;
+  cellColor: string;
+  sectionColor: string;
+}) {
+  const lod = useGridLod(baseCellSize, baseSectionSize);
+  return (
+    <Grid
+      args={[400, 400]}
+      cellSize={lod.cellSize}
+      cellThickness={0.6}
+      cellColor={cellColor}
+      sectionSize={lod.sectionSize}
+      sectionThickness={1.2}
+      sectionColor={sectionColor}
+      fadeDistance={lod.fadeDistance}
+      fadeStrength={1}
+      followCamera={false}
+      infiniteGrid
+      side={viewFromBelow ? THREE.DoubleSide : THREE.BackSide}
+    />
   );
 }
 
@@ -932,6 +1072,7 @@ export function Viewport() {
   const clearMeasureContext = useMeasureStore((s) => s.clearContext);
   const measurePick = useMeasureStore((s) => s.pick);
   const lighting = useSettingsStore((s) => s.lighting);
+  const grid = useSettingsStore((s) => s.grid);
   const defaultViewMode = useSettingsStore((s) => s.viewMode);
   const persistViewMode = useSettingsStore((s) => s.setViewMode);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
@@ -1137,6 +1278,7 @@ export function Viewport() {
           contextHoverPicks={contextHover?.picks ?? []}
           contextHoverResults={contextHover?.results ?? []}
           lighting={lighting}
+          grid={grid}
         />
       </Canvas>
 
@@ -1270,90 +1412,86 @@ export function Viewport() {
               </TooltipTrigger>
               <TooltipContent side="top">Orbit (no selection)</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={!canSelect}
-                  className={cn(
-                    "h-7 w-7",
-                    interactMode === "all" && "bg-primary text-primary-foreground",
-                  )}
-                  onClick={() =>
-                    setInteractMode(interactMode === "all" ? "orbit" : "all")
-                  }
-                  aria-label="Select all (vertices, edges, faces)"
-                  aria-pressed={interactMode === "all"}
-                >
-                  <Crosshair className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {canSelect
-                  ? "Select all (vertices, edges, faces)"
-                  : "Selection requires a Build123D part (B-rep)"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={!canSelect}
-                  className={cn(
-                    "h-7 w-7",
-                    interactMode === "precise" &&
-                      "bg-primary text-primary-foreground",
-                  )}
-                  onClick={() =>
-                    setInteractMode(
-                      interactMode === "precise" ? "orbit" : "precise",
-                    )
-                  }
-                  aria-label="Select a specific entity type"
-                  aria-pressed={interactMode === "precise"}
-                >
-                  <Target className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {canSelect
-                  ? "Select precise (face / edge / vertex)"
-                  : "Selection requires a Build123D part (B-rep)"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={!canSelect}
-                  className={cn(
-                    "h-7 w-7",
-                    interactMode === "measure" &&
-                      "bg-primary text-primary-foreground",
-                  )}
-                  onClick={() =>
-                    setInteractMode(
-                      interactMode === "measure" ? "orbit" : "measure",
-                    )
-                  }
-                  aria-label="Measure (face / edge / vertex)"
-                  aria-pressed={interactMode === "measure"}
-                >
-                  <Ruler className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {canSelect
-                  ? "Measure (distance, area, length, angle)"
-                  : "Measurement requires a Build123D part (B-rep)"}
-              </TooltipContent>
-            </Tooltip>
+            {canSelect && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "h-7 w-7",
+                        interactMode === "all" &&
+                          "bg-primary text-primary-foreground",
+                      )}
+                      onClick={() =>
+                        setInteractMode(interactMode === "all" ? "orbit" : "all")
+                      }
+                      aria-label="Select all (vertices, edges, faces)"
+                      aria-pressed={interactMode === "all"}
+                    >
+                      <Crosshair className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Select all (vertices, edges, faces)
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "h-7 w-7",
+                        interactMode === "precise" &&
+                          "bg-primary text-primary-foreground",
+                      )}
+                      onClick={() =>
+                        setInteractMode(
+                          interactMode === "precise" ? "orbit" : "precise",
+                        )
+                      }
+                      aria-label="Select a specific entity type"
+                      aria-pressed={interactMode === "precise"}
+                    >
+                      <Target className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Select precise (face / edge / vertex)
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "h-7 w-7",
+                        interactMode === "measure" &&
+                          "bg-primary text-primary-foreground",
+                      )}
+                      onClick={() =>
+                        setInteractMode(
+                          interactMode === "measure" ? "orbit" : "measure",
+                        )
+                      }
+                      aria-label="Measure (face / edge / vertex)"
+                      aria-pressed={interactMode === "measure"}
+                    >
+                      <Ruler className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Measure (distance, area, length, angle)
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            )}
           </div>
         </div>
         <SelectionIndicator align="start" side="top" variant="overlay" />

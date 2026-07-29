@@ -13,6 +13,21 @@ export interface LightingSettings {
   metalness: number;
   rimLight: boolean;
   rimIntensity: number;
+  /** ACES Filmic tone mapping exposure. */
+  toneMappingExposure: number;
+  /** Soft contact (blob) shadow under the model. */
+  contactShadows: boolean;
+  /** Model surface base color (hex). */
+  modelColor: string;
+}
+
+export interface GridSettings {
+  /** Base grid cell size (world units). Acts as the floor when zoomed in. */
+  cellSize: number;
+  /** Major grid line spacing (world units). */
+  sectionSize: number;
+  /** Render the grid double-sided so it is visible when orbiting below. */
+  viewFromBelow: boolean;
 }
 
 export type FaceExportFormat = "svg" | "dxf";
@@ -207,6 +222,7 @@ export interface AppSettings {
   panelSplit?: number;
   viewMode?: ViewMode;
   lighting?: LightingSettings;
+  grid?: GridSettings;
   gridVisible?: boolean;
   gizmoVisible?: boolean;
   lastOpenDocIds?: string[];
