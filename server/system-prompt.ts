@@ -67,7 +67,7 @@ const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the ru
    \`\`\`
    Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
 
-5. CRITICAL — each @op module must be CUMULATIVE: it must incorporate all prior operations by calling the previous module inside the appropriate CSG operation (union/difference/intersection). Do NOT define standalone tool modules (e.g. a module that is just a cylinder). Instead, inline tool geometry directly into the cumulative module that uses it. This lets the application preview the model at any step by rendering that module alone.
+4. CRITICAL — each @op module must be CUMULATIVE: it must incorporate all prior operations by calling the previous module inside the appropriate CSG operation (union/difference/intersection). Do NOT define standalone tool modules (e.g. a module that is just a cylinder). Instead, inline tool geometry directly into the cumulative module that uses it. This lets the application preview the model at any step by rendering that module alone.
    \`\`\`
    // WRONG — standalone tool, preview shows just a cylinder:
    module hole() cylinder(h=99, d=hole_dia);
@@ -82,7 +82,7 @@ const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the ru
    }
    \`\`\`
 
-4. Example of a complete parametric script:
+5. Example of a complete parametric script:
    \`\`\`
    /* [Dimensions] */
    // Overall width
@@ -140,9 +140,9 @@ const BUILD123D_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the r
    \`\`\`
    Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
 
-5. CRITICAL — you MUST use the \`with Build() as ctx:\` builder pattern for the entire model. Do NOT use the algebraic API (Box(...), Cylinder(...) with +, -, & operators) in parametric mode. The application previews intermediate steps by truncating the build context and reading \`ctx.part\` — this only works with the sequential builder API. Assign the final result with \`result = ctx.part\`.
+4. CRITICAL — you MUST use the \`with Build() as ctx:\` builder pattern for the entire model. Do NOT use the algebraic API (Box(...), Cylinder(...) with +, -, & operators) in parametric mode. The application previews intermediate steps by truncating the build context and reading \`ctx.part\` — this only works with the sequential builder API. Assign the final result with \`result = ctx.part\`.
 
-4. Example of a complete parametric Build123D script:
+5. Example of a complete parametric Build123D script:
    \`\`\`
    # @group Dimensions
    # @param width public min=10 max=200 step=1 desc="Overall width"

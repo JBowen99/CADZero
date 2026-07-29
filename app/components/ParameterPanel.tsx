@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ParamDef } from "~/types";
-import { extractMeta } from "~/lib/model-meta";
-import { patchParam } from "~/lib/model-meta";
+import { extractMeta, patchParam } from "~/lib/model-meta";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 import { Slider } from "~/components/ui/slider";
@@ -141,7 +140,8 @@ function ParamControl({
   if (type === "number" && param.min !== undefined && param.max !== undefined) {
     const min = param.min;
     const max = param.max;
-    const step = param.step ?? (max - min) / 100;
+    const range = max - min;
+    const step = param.step ?? (range > 0 ? range / 100 : 1);
     const numValue = typeof value === "number" ? value : Number(value);
     return (
       <div className="flex items-center gap-2">

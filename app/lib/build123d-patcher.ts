@@ -17,12 +17,9 @@ export function patchBuild123dParam(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s/.test(line)) continue;
-    const commentIdx = line.indexOf("#");
-    const codeText = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
-    const m = ASSIGN_LINE_RE.exec(codeText);
+    const m = ASSIGN_LINE_RE.exec(line);
     if (!m || m[1] !== name) continue;
-    const suffix = commentIdx >= 0 ? "  " + line.slice(commentIdx) : (m[4] ?? "");
-    lines[i] = m[1] + m[2] + formatBuild123dValue(value) + suffix;
+    lines[i] = m[1] + m[2] + formatBuild123dValue(value) + (m[4] ?? "");
     return lines.join("\n");
   }
   return code;
