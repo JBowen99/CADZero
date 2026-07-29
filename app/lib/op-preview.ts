@@ -9,19 +9,44 @@ export function buildPreviewCode(
   return null;
 }
 
-function findModuleName(lines: string[], opLine: number): { name: string; line: number } | null {
-  if (opLine >= 0 && opLine < lines.length) {
-    const m = /module\s+(\w+)/.exec(lines[opLine]);
-    if (m) return { name: m[1], line: opLine };
-  }
-  for (let i = opLine + 1; i < Math.min(opLine + 3, lines.length); i++) {
-    const m = /module\s+(\w+)/.exec(lines[i]);
-    if (m) return { name: m[1], line: i };
-  }
+function findModuleName(
+  lines: string[],
+  opLine: number,
+): { name: string; endLine: number } | null {
+  const m0 = /module\s+(\w+)/.exec(lines[opLine]);
+  if (m0) return { name: m0[1], endLine: opLine };
+
   for (let i = opLine; i >= 0; i--) {
     const m = /module\s+(\w+)/.exec(lines[i]);
-    if (m) return { name: m[1], line: i };
+    if (m) return { name: m[1], endLine: opLine };
   }
+
+  for (let i = opLine + 1; i < Math.min(opLine + 4, lines.length); i++) {
+    const m = /module\s+(\w+)/.exec(lines[i]);
+    if (m) {
+      let endLine = i;
+      if (lines[i].includes("{")) {
+        let depth = 0;
+        let found = false;
+        for (let j = i; j < lines.length; j++) {
+          for (let k = 0; k < lines[j].length; k++) {
+            if (lines[j][k] === "{") depth++;
+            else if (lines[j][k] === "}") {
+              depth--;
+              if (depth === 0) {
+                endLine = j;
+                found = true;
+                break;
+              }
+            }
+          }
+          if (found) break;
+        }
+      }
+      return { name: m[1], endLine };
+    }
+  }
+
   return null;
 }
 
@@ -30,7 +55,7 @@ function buildScadPreviewCode(code: string, op: OpNode): string | null {
   const found = findModuleName(lines, op.line);
   if (!found) return null;
 
-  const kept = lines.slice(0, found.line + 1);
+  const kept = lines.slice(0, found.endLine + 1);
 
   while (kept.length > 0) {
     const last = kept[kept.length - 1].trim();
@@ -38,7 +63,7 @@ function buildScadPreviewCode(code: string, op: OpNode): string | null {
       kept.pop();
       continue;
     }
-    if (/^\w+\(.*\);?\s*$/.test(last) && !last.startsWith("module ")) {
+    if (/^\w+\(.*\);?\s*$/.test(last) && !last.startsWith("module ") && !last.startsWith("}")) {
       kept.pop();
       continue;
     }
