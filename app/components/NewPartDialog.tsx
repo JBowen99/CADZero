@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, Boxes, Loader2 } from "lucide-react";
+import { Box, Boxes, Loader2, SlidersHorizontal } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,11 +25,13 @@ export function NewPartDialog() {
   const capsLoaded = useCapabilitiesStore((s) => s.loaded);
 
   const [selected, setSelected] = useState<BackendName>("openscad");
+  const [parametric, setParametric] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setSelected(defaultBackend ?? "openscad");
+      setParametric(false);
       setBusy(false);
     }
   }, [open, defaultBackend]);
@@ -40,7 +42,7 @@ export function NewPartDialog() {
     setBusy(true);
     try {
       setDefaultBackend(language);
-      newTab(language);
+      newTab(language, parametric);
       setOpen(false);
     } finally {
       setBusy(false);
@@ -84,6 +86,45 @@ export function NewPartDialog() {
             onSelect={() => setSelected("build123d")}
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => setParametric((v) => !v)}
+          className={cn(
+            "flex items-center gap-2.5 rounded-lg border p-3 text-left transition-colors",
+            parametric
+              ? "border-primary bg-primary/10"
+              : "border-border hover:bg-accent",
+          )}
+        >
+          <div
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded border",
+              parametric
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border",
+            )}
+          >
+            {parametric && (
+              <svg viewBox="0 0 12 12" className="size-3" fill="none">
+                <path
+                  d="M2.5 6L5 8.5L9.5 3.5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </div>
+          <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">Parametric mode</span>
+            <span className="text-[11px] leading-snug text-muted-foreground">
+              Expose parameters as sliders and show a feature tree
+            </span>
+          </div>
+        </button>
 
         <DialogFooter>
           <Button

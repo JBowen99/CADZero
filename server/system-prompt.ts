@@ -41,6 +41,139 @@ Supported Build123D vocabulary (algebraic API is preferred):
 How holes work: subtract a slightly taller cylinder from the body: \`result = plate - hole.moved(Pos(x, y, 0))\`.
 Keep meshes reasonable — do not request absurd tolerances; the STL is tessellated automatically. Output must be complete, valid, self-contained Python. If a render fails, the traceback names the line — read it, fix the script, and return the complete script again.`;
 
+const OPENSCAD_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the rules above, you MUST structure every script using the OpenSCAD Customizer convention so the application can expose a parameter panel and a feature tree. Follow this format exactly:
+
+1. Declare every user-controllable value as a top-level variable, grouped under a section header comment. Put internal/helper values under a \`/* [Hidden] */\` section so they stay out of the parameter panel.
+
+2. Each parameter line uses this shape:
+   \`\`\`
+   /* [Group Name] */
+   // Human-readable description of the parameter
+   variable_name = <literal>; // [min:step:max]      (slider)
+   // or
+   variable_name = <literal>; // [min:max]            (slider, step inferred)
+   // or
+   variable_name = <literal>; // [opt1,opt2,opt3]     (dropdown)
+   // or
+   variable_name = <literal>;                         (plain field: number/text/bool)
+   \`\`\`
+   The RHS MUST be a single literal (number, quoted string, or true/false) — never an expression — so the panel can edit it. Use the preceding \`// description\` line to label the parameter.
+
+3. Mark each modeling operation with an \`@op\` marker comment on the line that defines or invokes it, so the feature tree can list it:
+   \`\`\`
+   module base_profile() square([width, depth]);          // @op:sketch "Base Profile"
+   module with_pad() linear_extrude(8) base_profile();     // @op:extrude "Pad"
+   with_pad();                                             // @op:final "Bracket"
+   \`\`\`
+   Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+4. CRITICAL — each @op module must be CUMULATIVE: it must incorporate all prior operations by calling the previous module inside the appropriate CSG operation (union/difference/intersection). Do NOT define standalone tool modules (e.g. a module that is just a cylinder). Instead, inline tool geometry directly into the cumulative module that uses it. This lets the application preview the model at any step by rendering that module alone.
+   \`\`\`
+   // WRONG — standalone tool, preview shows just a cylinder:
+   module hole() cylinder(h=99, d=hole_dia);
+   module final() difference() { pad(); hole(); }
+
+   // RIGHT — cumulative, preview shows the plate with the hole:
+   module with_holes() {
+     difference() {
+       with_pad();
+       cylinder(h=99, d=hole_dia);
+     }
+   }
+   \`\`\`
+
+5. Example of a complete parametric script:
+   \`\`\`
+   /* [Dimensions] */
+   // Overall width
+   width = 50;        // [10:1:200]
+   // Overall depth
+   depth = 30;        // [10:1:200]
+   // Hole diameter
+   hole_dia = 5;      // [1:0.5:50]
+   // Fillet radius
+   fillet_r = 2;      // [0:0.5:20]
+
+   /* [Hidden] */
+   _eps = 0.01;
+
+   /* [Features] */
+   module base_profile() square([width, depth], center=true);    // @op:sketch "Base Profile"
+   module with_pad() {
+     linear_extrude(8) base_profile();
+   }                                                             // @op:extrude "Pad"
+   module with_holes() {
+     difference() {
+       with_pad();
+       cylinder(h=99, d=hole_dia, $fn=32, center=true);
+     }
+   }                                                             // @op:hole "Center Hole"
+   module with_fillets() {
+     difference() {
+       with_holes();
+       // Corner reliefs for fillet
+       for (x = [-width/2, width/2], y = [-depth/2, depth/2])
+         translate([x, y, 0]) cylinder(h=99, d=fillet_r*2, $fn=32, center=true);
+     }
+   }                                                             // @op:fillet "Corner Fillets"
+   with_fillets();                                               // @op:final "Bracket"
+   \`\`\`
+
+Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used.`;
+
+const BUILD123D_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the rules above, you MUST structure every script using annotation comments so the application can expose a parameter panel and a feature tree. Follow this format exactly:
+
+1. Declare every user-controllable value as a top-level (column-0) variable with a literal RHS, preceded by a \`# @param\` annotation comment. Put internal/helper values under \`# @param <name> private\` so they stay out of the parameter panel.
+
+2. Each parameter pair uses this shape:
+   \`\`\`
+   # @param <name> <public|private> [min=<n>] [max=<n>] [step=<n>] [options="<a,b,c>"] [desc="<text>"]
+   <name> = <literal>
+   \`\`\`
+   The RHS MUST be a single literal (number, quoted string, or True/False) — never an expression — so the panel can edit it. Use \`# @group <GroupName>\` comments to organize parameters into sections.
+
+3. Mark each modeling operation with an \`# @op\` marker comment on the same line as the relevant builder call, so the feature tree can list it:
+   \`\`\`
+    rectangle(width, depth)                # @op:sketch "Base Profile"
+    extrude(amount=8)                      # @op:extrude "Pad"
+    hole(radius=hole_dia/2)                # @op:hole "Center Hole"
+   \`\`\`
+   Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+4. CRITICAL — you MUST use the \`with Build() as ctx:\` builder pattern for the entire model. Do NOT use the algebraic API (Box(...), Cylinder(...) with +, -, & operators) in parametric mode. The application previews intermediate steps by truncating the build context and reading \`ctx.part\` — this only works with the sequential builder API. Assign the final result with \`result = ctx.part\`.
+
+5. Example of a complete parametric Build123D script:
+   \`\`\`
+   # @group Dimensions
+   # @param width public min=10 max=200 step=1 desc="Overall width"
+   width = 50.0
+   # @param depth public min=10 max=200 step=1 desc="Overall depth"
+   depth = 30.0
+   # @param hole_dia public min=1 max=50 step=0.5 desc="Hole diameter"
+   hole_dia = 5.0
+   # @param fillet_r public min=0 max=20 step=0.5 desc="Fillet radius"
+   fillet_r = 2.0
+   # @param _eps private
+   _eps = 0.01
+
+   with Build() as ctx:
+       with BuildSketch(Plane.XY) as s:
+           rectangle(width, depth)            # @op:sketch "Base Profile"
+       extrude(amount=8)                      # @op:extrude "Pad"
+       with Locations((width/2, depth/2)):
+           hole(radius=hole_dia/2)            # @op:hole "Center Hole"
+       edges(Axis.Z).fillet(fillet_r)         # @op:fillet "Edge Fillets"
+
+   result = ctx.part                          # @op:final "Bracket"
+   \`\`\`
+
+Keep ALL parameters the user has set unless they ask to change them. When you change a dimension in response to a request, update the variable's literal value, not just where it is used. Use Python booleans True/False (capitalized).`;
+
+const PARAMETRIC_PROMPTS: Partial<Record<BackendName, string>> = {
+  openscad: OPENSCAD_PARAMETRIC_PROMPT,
+  build123d: BUILD123D_PARAMETRIC_PROMPT,
+};
+
 const BASE_PROMPTS: Record<BackendName, string> = {
   openscad: OPENSCAD_PROMPT,
   build123d: BUILD123D_PROMPT,
@@ -95,8 +228,14 @@ export function buildInstructions(
   selection: TopologySelection[] = [],
   codeExternallyModified = false,
   measurements: MeasureResult[] = [],
+  parametric = false,
 ): string {
-  const sections = [BASE_PROMPTS[language], "", MODE_PROMPTS[mode]];
+  const sections = [BASE_PROMPTS[language]];
+  const parametricPrompt = PARAMETRIC_PROMPTS[language];
+  if (parametric && parametricPrompt) {
+    sections.push("", parametricPrompt);
+  }
+  sections.push("", MODE_PROMPTS[mode]);
   if (cadCode && cadCode.trim()) {
     sections.push(
       "",

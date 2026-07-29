@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Code2, Loader2, Play, Redo2, Undo2, X } from "lucide-react";
 import { CodeEditor, type CodeEditorHandle } from "~/components/CodeEditor";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
+import { useCodeNavStore } from "~/store/useCodeNavStore";
+import { toggleParamVisibility } from "~/lib/promote-demotion";
 
 export function CodeView() {
   const cadCode = useModelStore((s) => s.cadCode);
@@ -15,10 +17,26 @@ export function CodeView() {
   const editActiveCode = useDocumentsStore((s) => s.editActiveCode);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const editorRef = useRef<CodeEditorHandle>(null);
+  const targetLine = useCodeNavStore((s) => s.targetLine);
+  const clearTarget = useCodeNavStore((s) => s.setTargetLine);
+  const parametric = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.parametric ??
+      false,
+  );
 
   const [error, setError] = useState<string | null>(null);
 
   const canRender = true;
+
+  useEffect(() => {
+    if (targetLine === null) return;
+    const id = requestAnimationFrame(() => {
+      editorRef.current?.scrollToLine(targetLine);
+      clearTarget(null);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [targetLine, clearTarget]);
 
   const handleRender = useCallback(async () => {
     setError(null);
@@ -28,6 +46,15 @@ export function CodeView() {
       setError(msg);
     }
   }, [renderActiveCode]);
+
+  const handleToggleParam = useCallback(
+    (name: string) => {
+      const code = useModelStore.getState().cadCode ?? "";
+      const patched = toggleParamVisibility(code, name, language);
+      if (patched !== code) editActiveCode(patched);
+    },
+    [editActiveCode, language],
+  );
 
   if (!cadCode) {
     return (
@@ -126,6 +153,7 @@ export function CodeView() {
           language={language}
           onChange={editActiveCode}
           onRender={() => void handleRender()}
+          onToggleParam={parametric ? handleToggleParam : undefined}
         />
       </div>
     </div>

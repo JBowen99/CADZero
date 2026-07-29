@@ -232,6 +232,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               cadCode,
               language: useModelStore.getState().language,
               partId: useDocumentsStore.getState().activeId,
+              parametric:
+                useDocumentsStore.getState().activeDocParametric ?? false,
               selection,
               measurements,
               codeExternallyModified,

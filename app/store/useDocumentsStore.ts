@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { toast } from "sonner";
 import type {
   BackendName,
+  OpNode,
   PartDocument,
   PartSummary,
   RevisionDetail,
@@ -24,6 +25,7 @@ import {
   topologyUrl,
 } from "~/lib/api";
 import { deserializeMessages } from "~/lib/chat-persist";
+import { buildPreviewCode } from "~/lib/op-preview";
 import { useModelStore } from "~/store/useModelStore";
 import { useWorkspaceStore } from "~/store/useWorkspaceStore";
 
@@ -38,6 +40,9 @@ export interface OpenDoc {
   cadCode: string;
   meshCode: string | null;
   language: BackendName;
+  parametric: boolean;
+  previewingOpId: string | null;
+  previewingOpName: string | null;
   chat: UIMessage[];
   chatLoaded: boolean;
   chatLoading: boolean;
@@ -53,16 +58,18 @@ interface DocumentsState {
   activeClientId: string | null;
   activeId: string | null;
   activeMeta: PartSummary | null;
+  activeDocParametric: boolean | null;
   previewingRevId: string | null;
   namePromptOpen: boolean;
   newPartDialogOpen: boolean;
   saveSignal: number;
   codeDirtyGuard: { open: boolean; resolve?: (ok: boolean) => void } | null;
   openPart: (id: string, opts?: { background?: boolean }) => Promise<void>;
-  newTab: (language: BackendName) => void;
+  newTab: (language: BackendName, parametric?: boolean) => void;
   closeTab: (clientId: string) => void;
   setActive: (clientId: string) => void;
   patchActiveDoc: (patch: Partial<OpenDoc>) => void;
+  setParametric: (parametric: boolean) => Promise<void>;
   editActiveCode: (code: string) => void;
   clearCodeDirty: () => void;
   guardCodeDirty: () => Promise<boolean>;
@@ -83,6 +90,8 @@ interface DocumentsState {
   adoptBuiltPart: (partId: string) => Promise<void>;
   previewRevision: (revId: string) => Promise<void>;
   exitPreview: () => Promise<void>;
+  previewOp: (op: OpNode) => Promise<void>;
+  exitOpPreview: () => void;
   restoreRevision: (revId: string) => Promise<void>;
   saveActiveNow: () => Promise<void>;
   resolveName: (name: string) => Promise<void>;
@@ -138,8 +147,18 @@ function deriveActive(openDocs: OpenDoc[], activeClientId: string | null) {
   return {
     activeId: doc?.partId ?? null,
     activeMeta: doc?.meta ?? null,
+    activeDocParametric: doc ? doc.parametric : null,
     previewingRevId: doc?.previewingRevId ?? null,
   };
+}
+
+// Tracks the in-flight op-preview request so a new preview (or a full
+// render) can cancel it and ignore its late response.
+let previewAbort: AbortController | null = null;
+
+function abortPreview(): void {
+  previewAbort?.abort();
+  previewAbort = null;
 }
 
 export const useDocumentsStore = create<DocumentsState>((set, get) => {
@@ -154,6 +173,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       );
       return buildState(openDocs, s.activeClientId);
     });
+  }
+
+  function resetOpPreview() {
+    abortPreview();
+    setActiveDocFields({ previewingOpId: null, previewingOpName: null });
   }
 
   function mirrorToModel(proj: {
@@ -184,6 +208,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     activeClientId: null,
     activeId: null,
     activeMeta: null,
+    activeDocParametric: null,
     previewingRevId: null,
     namePromptOpen: false,
     newPartDialogOpen: false,
@@ -213,6 +238,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         cadCode: data.code ?? "",
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
+        parametric: data.meta.parametric === true,
+        previewingOpId: null,
+        previewingOpName: null,
         chat: [],
         chatLoaded: false,
         chatLoading: false,
@@ -241,7 +269,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!opts?.background) mirrorActiveToModel(doc);
     },
 
-    newTab: (language) => {
+    newTab: (language, parametric = false) => {
       const doc: OpenDoc = {
         clientId: genClientId(),
         partId: null,
@@ -251,6 +279,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         cadCode: "",
         meshCode: null,
         language,
+        parametric,
+        previewingOpId: null,
+        previewingOpName: null,
         chat: [],
         chatLoaded: true,
         chatLoading: false,
@@ -291,17 +322,55 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       const active = get().openDocs.find(
         (d) => d.clientId === get().activeClientId,
       );
+      if (active?.previewingOpId) resetOpPreview();
       mirrorActiveToModel(active ?? null);
     },
 
     setActive: (clientId) => {
       set((s) => buildState(s.openDocs, clientId));
       const doc = get().openDocs.find((d) => d.clientId === clientId) ?? null;
+      if (doc?.previewingOpId) resetOpPreview();
       mirrorActiveToModel(doc);
     },
 
     patchActiveDoc: (patch) => {
       setActiveDocFields(patch);
+    },
+
+    setParametric: async (parametric) => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc || doc.parametric === parametric) return;
+      const prev = doc.parametric;
+      const prevMeta = doc.meta;
+      setActiveDocFields({
+        parametric,
+        meta: doc.meta ? { ...doc.meta, parametric } : doc.meta,
+      });
+      if (doc.partId) {
+        try {
+          const res = await fetch(partUrl(doc.partId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parametric }),
+          });
+          if (res.ok) {
+            const meta = (await res.json()) as PartSummary;
+            setActiveDocFields({ meta });
+          } else {
+            setActiveDocFields({ parametric: prev, meta: prevMeta });
+            toast.error("Couldn't save parametric setting", {
+              description: `Server responded ${res.status}.`,
+            });
+          }
+        } catch {
+          setActiveDocFields({ parametric: prev, meta: prevMeta });
+          toast.error("Couldn't save parametric setting", {
+            description: "Network request failed.",
+          });
+        }
+      }
     },
 
     editActiveCode: (code) => {
@@ -371,6 +440,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!doc.cadCode.trim()) {
         return { ok: false, message: "Nothing to render — code is empty." };
       }
+      abortPreview();
       useModelStore.getState().setRendering(true);
       try {
         let res: Response;
@@ -413,7 +483,13 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         useModelStore
           .getState()
           .setModel(mesh, doc.cadCode, doc.language, topology);
-        setActiveDocFields({ mesh, topology, meshCode: doc.cadCode });
+        setActiveDocFields({
+          mesh,
+          topology,
+          meshCode: doc.cadCode,
+          previewingOpId: null,
+          previewingOpName: null,
+        });
         return { ok: true };
       } finally {
         useModelStore.getState().setRendering(false);
@@ -531,6 +607,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     },
 
     adoptBuiltPart: async (partId) => {
+      abortPreview();
       const activeClientId = get().activeClientId;
       const active = get().openDocs.find(
         (d) => d.clientId === activeClientId,
@@ -554,7 +631,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       set((s) => {
         const openDocs = s.openDocs.map((d) =>
           d.clientId === activeClientId
-            ? { ...d, partId, meta, named, pendingName, language: data.language, saveState: "saved" as const }
+            ? {
+                ...d,
+                partId,
+                meta,
+                named,
+                pendingName,
+                language: data.language,
+                parametric: data.meta.parametric === true,
+                previewingOpId: null,
+                previewingOpName: null,
+                saveState: "saved" as const,
+              }
             : d,
         );
         return buildState(openDocs, s.activeClientId);
@@ -566,6 +654,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
+      abortPreview();
       const res = await fetch(revisionUrl(partId, revId));
       if (!res.ok) return;
       const detail: RevisionDetail = await res.json();
@@ -589,11 +678,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? detail.code : null,
         language: detail.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
     },
 
     exitPreview: async () => {
       const partId = get().activeId;
+      abortPreview();
       setActiveDocFields({ previewingRevId: null });
       if (!partId) return;
       const res = await fetch(partUrl(partId));
@@ -612,13 +704,101 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
+    },
+
+    previewOp: async (op) => {
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc || !doc.cadCode.trim()) return;
+      if (doc.previewingOpId === op.id) {
+        get().exitOpPreview();
+        return;
+      }
+      const previewCode = buildPreviewCode(doc.cadCode, op, doc.language);
+      if (!previewCode) {
+        toast.error("Preview not available", {
+          description: `Could not build preview for "${op.name}" (${op.rawKind})`,
+        });
+        if (doc.previewingOpId) get().exitOpPreview();
+        return;
+      }
+      // Cancel any in-flight preview so only the latest click can commit
+      // its mesh + badge.
+      abortPreview();
+      const controller = new AbortController();
+      previewAbort = controller;
+      const { signal } = controller;
+      const isLatest = () => previewAbort === controller;
+      useModelStore.getState().setRendering(true);
+      try {
+        const res = await fetch(renderUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: previewCode, language: doc.language }),
+          signal,
+        });
+        if (signal.aborted) return;
+        const out = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          meshId?: string;
+          stderr?: string;
+        } | null;
+        if (!out?.ok || !out.meshId) {
+          if (!signal.aborted) {
+            toast.error("Preview render failed", {
+              description: (out?.stderr ?? "Unknown error").slice(0, 300),
+            });
+          }
+          return;
+        }
+        const meshRes = await fetch(meshUrl(out.meshId), { signal });
+        if (signal.aborted || !meshRes.ok) return;
+        const mesh = await decodeMesh(meshRes);
+        if (signal.aborted) return;
+        useModelStore.getState().setModel(mesh, doc.cadCode, doc.language, null);
+        setActiveDocFields({
+          previewingOpId: op.id,
+          previewingOpName: op.name,
+        });
+      } catch {
+        // Aborted requests throw; unexpected errors are surfaced via the
+        // out.ok branch above. Nothing to do for an aborted preview.
+      } finally {
+        if (isLatest()) {
+          previewAbort = null;
+          useModelStore.getState().setRendering(false);
+        }
+      }
+    },
+
+    exitOpPreview: () => {
+      abortPreview();
+      const doc = get().openDocs.find(
+        (d) => d.clientId === get().activeClientId,
+      );
+      if (!doc) return;
+      if (doc.mesh) {
+        useModelStore.getState().setModel(
+          doc.mesh,
+          doc.cadCode,
+          doc.language,
+          doc.topology,
+        );
+      } else {
+        useModelStore.getState().clearMesh();
+      }
+      setActiveDocFields({ previewingOpId: null, previewingOpName: null });
     },
 
     restoreRevision: async (revId) => {
       if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
+      abortPreview();
       const res = await fetch(restoreRevisionUrl(partId, revId), {
         method: "POST",
       });
@@ -641,6 +821,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
     },
 
@@ -696,7 +878,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         const res = await fetch(partsUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: trimmed, language: active.language }),
+          body: JSON.stringify({
+              name: trimmed,
+              language: active.language,
+              parametric: active.parametric,
+            }),
         });
         if (!res.ok) throw new Error(`Create failed (status ${res.status})`);
         meta = await res.json();

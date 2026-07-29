@@ -12,6 +12,8 @@
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "setup:python": "node scripts/setup-python.mjs",
     "dev:server": "node --env-file-if-exists=server/.env --import tsx --watch server/index.ts",
     "start:server": "node --env-file-if-exists=server/.env --import tsx server/index.ts",
@@ -76,6 +78,7 @@
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.3",
+    "vitest": "^4.1.10",
     "wait-on": "^9.0.10"
   },
   "build": {

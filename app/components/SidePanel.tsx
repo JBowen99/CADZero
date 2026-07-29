@@ -1,20 +1,20 @@
-import { useState } from "react";
-import { Code2, History, MessageSquare } from "lucide-react";
+import { Code2, History, MessageSquare, SlidersHorizontal } from "lucide-react";
 import { ChatPanel } from "~/components/ChatPanel";
 import { CodeView } from "~/components/CodeView";
 import { HistoryPanel } from "~/components/HistoryPanel";
+import { ParameterPanel } from "~/components/ParameterPanel";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
+import { useCodeNavStore } from "~/store/useCodeNavStore";
 import { cn } from "~/lib/utils";
 
-type SideTab = "chat" | "code" | "history";
-
 export function SidePanel() {
-  const [tab, setTab] = useState<SideTab>("chat");
-  const codeDirty = useDocumentsStore(
-    (s) =>
-      s.openDocs.find((d) => d.clientId === s.activeClientId)?.codeDirty ??
-      false,
+  const tab = useCodeNavStore((s) => s.sidePanelTab);
+  const setTab = useCodeNavStore((s) => s.setSidePanelTab);
+  const activeDoc = useDocumentsStore((s) =>
+    s.openDocs.find((d) => d.clientId === s.activeClientId),
   );
+  const codeDirty = activeDoc?.codeDirty ?? false;
+  const parametric = activeDoc?.parametric ?? false;
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-l bg-background">
@@ -32,6 +32,14 @@ export function SidePanel() {
           label="Code"
           dirty={codeDirty}
         />
+        {parametric && (
+          <TabButton
+            active={tab === "params"}
+            onClick={() => setTab("params")}
+            icon={<SlidersHorizontal className="size-3.5" />}
+            label="Params"
+          />
+        )}
         <TabButton
           active={tab === "history"}
           onClick={() => setTab("history")}
@@ -44,6 +52,8 @@ export function SidePanel() {
           <ChatPanel />
         ) : tab === "code" ? (
           <CodeView />
+        ) : tab === "params" ? (
+          <ParameterPanel />
         ) : (
           <HistoryPanel />
         )}

@@ -936,6 +936,12 @@ export function Viewport() {
   const persistViewMode = useSettingsStore((s) => s.setViewMode);
   const previewingRevId = useDocumentsStore((s) => s.previewingRevId);
   const exitPreview = useDocumentsStore((s) => s.exitPreview);
+  const previewingOpName = useDocumentsStore(
+    (s) =>
+      s.openDocs.find((d) => d.clientId === s.activeClientId)?.previewingOpName ??
+      null,
+  );
+  const exitOpPreview = useDocumentsStore((s) => s.exitOpPreview);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const openDocsLength = useDocumentsStore((s) => s.openDocs.length);
   const meshStale = useDocumentsStore((s) => {
@@ -1165,13 +1171,30 @@ export function Viewport() {
           </Button>
         </div>
       )}
+      {previewingOpName && (
+        <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background/90 px-2.5 py-1.5 text-xs shadow-sm">
+          <span className="font-medium text-primary">
+            Previewing: {previewingOpName}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 px-2 text-[11px]"
+            onClick={() => exitOpPreview()}
+          >
+            <ArrowLeft className="size-3" />
+            Final
+          </Button>
+        </div>
+      )}
       {processing ? (
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />
           Processing mesh…
         </div>
       ) : rendering || building ? (
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />
           Rendering…
         </div>
@@ -1181,13 +1204,13 @@ export function Viewport() {
             <button
               type="button"
               onClick={() => void renderActiveCode()}
-              className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 shadow-sm hover:bg-amber-500/20 dark:text-amber-400"
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 shadow-sm hover:bg-amber-500/20 dark:text-amber-400"
             >
               <TriangleAlert className="size-3.5" />
               Out of sync
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">
+          <TooltipContent side="top">
             The shown model doesn't match the current code. Click to render.
           </TooltipContent>
         </Tooltip>

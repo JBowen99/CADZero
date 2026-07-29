@@ -51,6 +51,7 @@ interface ModelState {
     ctx: ExportContext,
   ) => Promise<ExportResult>;
   clear: () => void;
+  clearMesh: () => void;
 }
 
 export const useModelStore = create<ModelState>((set) => ({
@@ -146,6 +147,7 @@ export const useModelStore = create<ModelState>((set) => ({
   },
 
   clear: () => set({ mesh: null, topology: null, cadCode: null }),
+  clearMesh: () => set({ mesh: null, topology: null }),
 }));
 
 export const currentBackend = () => useModelStore.getState().backend;
