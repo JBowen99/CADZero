@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileUIPart } from "ai";
 import { toast } from "sonner";
 import { AlertTriangle, ArrowUp, FilePlus2, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
@@ -122,7 +122,10 @@ export function ChatPanel() {
 
   // For each build part in the thread, resolve the code of the previous build
   // so the chat can show a +/− diff summary instead of the full listing.
-  const previousCodeFor = useMemo(() => {
+  // The map is rebuilt when messages change, but the reader callback stays
+  // stable (reads via ref) so memoized ChatMessage children don't re-render
+  // on every streaming token.
+  const previousCodeMap = useMemo(() => {
     const map = new Map<string, string | undefined>();
     let prev: string | undefined;
     for (const message of messages) {
@@ -138,9 +141,15 @@ export function ChatPanel() {
         if (code) prev = code;
       });
     }
-    return (messageId: string, buildIndex: number) =>
-      map.get(`${messageId}#${buildIndex}`);
+    return map;
   }, [messages]);
+  const previousCodeRef = useRef(previousCodeMap);
+  previousCodeRef.current = previousCodeMap;
+  const previousCodeFor = useCallback(
+    (messageId: string, buildIndex: number) =>
+      previousCodeRef.current.get(`${messageId}#${buildIndex}`),
+    [],
+  );
   const mode = useChatModeStore((s) => s.mode);
   const setMode = useChatModeStore((s) => s.setMode);
   const model = useSettingsStore((s) => s.model);

@@ -271,11 +271,13 @@ function useGridLod(baseCellSize: number, baseSectionSize: number) {
     sectionSize: baseSectionSize,
   });
   const baseRef = useRef({ cell: baseCellSize, section: baseSectionSize });
-  baseRef.current = { cell: baseCellSize, section: baseSectionSize };
   const lastTierRef = useRef(baseCellSize);
 
-  // Reset immediately when the configured base sizes change.
+  // Reset immediately when the configured base sizes change. Kept in sync with
+  // baseRef (read by useFrame below) inside the effect so refs aren't mutated
+  // during render.
   useEffect(() => {
+    baseRef.current = { cell: baseCellSize, section: baseSectionSize };
     lastTierRef.current = baseCellSize;
     setLod({ cellSize: baseCellSize, sectionSize: baseSectionSize });
   }, [baseCellSize, baseSectionSize]);
@@ -816,6 +818,12 @@ function Scene({
   const bsphere = geometry?.boundingSphere ?? null;
   const modelRadius = bsphere?.radius ?? 0;
   const shadowExtent = Math.max(modelRadius * 1.6, 50);
+  // Shadow frustum near/far along the light axis, derived from the key light's
+  // distance to the scene plus the model bounds so the depth range covers the
+  // model regardless of size (the previous hardcoded far=220 clipped large parts).
+  const lightDist = Math.hypot(keyLightPos[0], keyLightPos[1], keyLightPos[2]);
+  const shadowNear = Math.max(lightDist - shadowExtent - 50, 1);
+  const shadowFar = lightDist + shadowExtent + 50;
   const contactCenter: [number, number, number] = [
     bsphere?.center.x ?? 0,
     0,
@@ -832,8 +840,8 @@ function Scene({
         intensity={lighting.directionalIntensity}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-near={1}
-        shadow-camera-far={220}
+        shadow-camera-near={shadowNear}
+        shadow-camera-far={shadowFar}
         shadow-camera-left={-shadowExtent}
         shadow-camera-right={shadowExtent}
         shadow-camera-top={shadowExtent}

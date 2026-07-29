@@ -62,8 +62,11 @@ function BuildCard({
     [code],
   );
   const diff = useMemo(
-    () => (previousCode != null && code ? computeDiff(previousCode, code) : null),
-    [previousCode, code],
+    () =>
+      previousCode != null && showCode && code
+        ? computeDiff(previousCode, code)
+        : null,
+    [previousCode, showCode, code],
   );
   const hasChanges = !!diff && (diff.added > 0 || diff.removed > 0);
 
@@ -108,11 +111,18 @@ function BuildCard({
       )}
       {showCode && (
         <div className="overflow-hidden rounded-md border bg-muted/40">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
+          <div
+            role="button"
+            tabIndex={0}
             aria-expanded={open}
-            className="flex w-full items-center gap-1.5 border-b bg-muted/60 px-2.5 py-1.5 text-left transition-colors hover:bg-muted"
+            onClick={() => setOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen((v) => !v);
+              }
+            }}
+            className="flex w-full cursor-pointer items-center gap-1.5 border-b bg-muted/60 px-2.5 py-1.5 text-left transition-colors hover:bg-muted"
           >
             <ChevronRight
               className={cn(
@@ -151,7 +161,7 @@ function BuildCard({
                 <Copy className="text-muted-foreground" />
               )}
             </Button>
-          </button>
+          </div>
           {open && !codeReady && (
             <AssistantStatusMessage>Preparing code…</AssistantStatusMessage>
           )}
