@@ -15,7 +15,8 @@ class ParamToggleMarker extends GutterMarker {
   eq(other: ParamToggleMarker) {
     return (
       this.paramName === other.paramName &&
-      this.isPublic === other.isPublic
+      this.isPublic === other.isPublic &&
+      this.onToggle === other.onToggle
     );
   }
 

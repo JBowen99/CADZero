@@ -79,4 +79,22 @@ describe("buildPreviewCode — Build123D", () => {
     ].join("\n");
     expect(buildPreviewCode(unbalanced, op(1), "build123d")).toBeNull();
   });
+
+  it("returns null when truncation leaves an unterminated triple-quoted string", () => {
+    const unterminated = [
+      'with Build() as ctx:',
+      '    text("""incomplete  # @op:sketch "Base"',
+    ].join("\n");
+    expect(buildPreviewCode(unterminated, op(1), "build123d")).toBeNull();
+  });
+
+  it("accepts a balanced triple-quoted string in truncated code", () => {
+    const balanced = [
+      'with Build() as ctx:',
+      '    text("""ok""")  # @op:sketch "Base"',
+    ].join("\n");
+    const out = buildPreviewCode(balanced, op(1), "build123d");
+    expect(out).not.toBeNull();
+    expect(out).toContain('text("""ok""")');
+  });
 });

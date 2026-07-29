@@ -103,9 +103,7 @@
       {
         "from": "server/python",
         "to": "python-runtime",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       }
     ],
     "linux": {
@@ -120,9 +118,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "artifactName": "${productName}-${version}-setup.${ext}"

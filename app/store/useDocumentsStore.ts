@@ -175,6 +175,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     });
   }
 
+  function resetOpPreview() {
+    abortPreview();
+    setActiveDocFields({ previewingOpId: null, previewingOpName: null });
+  }
+
   function mirrorToModel(proj: {
     mesh: TriangleMesh | null;
     topology: Topology | null;
@@ -317,12 +322,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       const active = get().openDocs.find(
         (d) => d.clientId === get().activeClientId,
       );
+      if (active?.previewingOpId) resetOpPreview();
       mirrorActiveToModel(active ?? null);
     },
 
     setActive: (clientId) => {
       set((s) => buildState(s.openDocs, clientId));
       const doc = get().openDocs.find((d) => d.clientId === clientId) ?? null;
+      if (doc?.previewingOpId) resetOpPreview();
       mirrorActiveToModel(doc);
     },
 
@@ -335,6 +342,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         (d) => d.clientId === get().activeClientId,
       );
       if (!doc || doc.parametric === parametric) return;
+      const prev = doc.parametric;
+      const prevMeta = doc.meta;
       setActiveDocFields({
         parametric,
         meta: doc.meta ? { ...doc.meta, parametric } : doc.meta,
@@ -349,9 +358,17 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
           if (res.ok) {
             const meta = (await res.json()) as PartSummary;
             setActiveDocFields({ meta });
+          } else {
+            setActiveDocFields({ parametric: prev, meta: prevMeta });
+            toast.error("Couldn't save parametric setting", {
+              description: `Server responded ${res.status}.`,
+            });
           }
         } catch {
-          /* best-effort: local state already updated */
+          setActiveDocFields({ parametric: prev, meta: prevMeta });
+          toast.error("Couldn't save parametric setting", {
+            description: "Network request failed.",
+          });
         }
       }
     },
@@ -590,6 +607,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
     },
 
     adoptBuiltPart: async (partId) => {
+      abortPreview();
       const activeClientId = get().activeClientId;
       const active = get().openDocs.find(
         (d) => d.clientId === activeClientId,
@@ -621,6 +639,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
                 pendingName,
                 language: data.language,
                 parametric: data.meta.parametric === true,
+                previewingOpId: null,
+                previewingOpName: null,
                 saveState: "saved" as const,
               }
             : d,
@@ -634,6 +654,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
+      abortPreview();
       const res = await fetch(revisionUrl(partId, revId));
       if (!res.ok) return;
       const detail: RevisionDetail = await res.json();
@@ -657,11 +678,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? detail.code : null,
         language: detail.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
     },
 
     exitPreview: async () => {
       const partId = get().activeId;
+      abortPreview();
       setActiveDocFields({ previewingRevId: null });
       if (!partId) return;
       const res = await fetch(partUrl(partId));
@@ -680,6 +704,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
     },
 
@@ -772,6 +798,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!(await get().guardCodeDirty())) return;
       const partId = get().activeId;
       if (!partId) return;
+      abortPreview();
       const res = await fetch(restoreRevisionUrl(partId, revId), {
         method: "POST",
       });
@@ -794,6 +821,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         meshCode: mesh ? (data.code ?? "") : null,
         language: data.language,
         codeDirty: false,
+        previewingOpId: null,
+        previewingOpName: null,
       });
     },
 

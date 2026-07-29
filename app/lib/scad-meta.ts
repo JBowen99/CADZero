@@ -1,35 +1,10 @@
-import type { OpKind, OpNode, ParamDef, ParamType, ModelMeta } from "~/types";
-
-const OP_KINDS: ReadonlySet<string> = new Set([
-  "sketch",
-  "extrude",
-  "cut",
-  "revolve",
-  "fillet",
-  "chamfer",
-  "pattern",
-  "shell",
-  "hole",
-  "offset",
-  "hull",
-  "union",
-  "intersection",
-  "mirror",
-  "rotate",
-  "translate",
-  "scale",
-  "final",
-]);
+import type { OpNode, ParamDef, ParamType, ModelMeta } from "~/types";
+import { normalizeOpKind } from "./op-kinds";
 
 const SECTION_RE = /\/\*\s*\[([^\]]+)\]\s*\*\//;
 const OP_RE = /@op:(\w+)\s*(?:"([^"]*)")?/;
 const ASSIGN_RE = /^(\w+)\s*=\s*([^;]+);(.*)$/;
 const NUM_RE = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/;
-
-function normalizeOpKind(raw: string): OpKind {
-  const lower = raw.toLowerCase();
-  return OP_KINDS.has(lower) ? (lower as OpKind) : "other";
-}
 
 function isNumberLiteral(s: string): boolean {
   return NUM_RE.test(s.trim());
@@ -195,5 +170,3 @@ export function extractScadMeta(code: string): ModelMeta {
 
   return { params, ops };
 }
-
-export const EMPTY_SCAD_META: ModelMeta = { params: [], ops: [] };

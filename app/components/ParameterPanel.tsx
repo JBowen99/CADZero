@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ParamDef } from "~/types";
-import { extractMeta, patchParam } from "~/lib/model-meta";
+import { patchParam } from "~/lib/model-meta";
+import { useModelMeta } from "~/lib/use-model-meta";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useModelStore } from "~/store/useModelStore";
 import { Slider } from "~/components/ui/slider";
@@ -16,16 +17,11 @@ interface GroupedParams {
 }
 
 export function ParameterPanel() {
-  const cadCode = useModelStore((s) => s.cadCode);
-  const language = useModelStore((s) => s.language);
+  const meta = useModelMeta();
   const editActiveCode = useDocumentsStore((s) => s.editActiveCode);
   const renderActiveCode = useDocumentsStore((s) => s.renderActiveCode);
   const isRendering = useModelStore((s) => s.isRendering);
 
-  const meta = useMemo(
-    () => extractMeta(cadCode ?? "", language),
-    [cadCode, language],
-  );
   const publicParams = useMemo(
     () => meta.params.filter((p) => p.public),
     [meta.params],

@@ -14,8 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { OpKind, OpNode } from "~/types";
-import { extractMeta } from "~/lib/model-meta";
-import { useModelStore } from "~/store/useModelStore";
+import { useModelMeta } from "~/lib/use-model-meta";
 import { useDocumentsStore } from "~/store/useDocumentsStore";
 import { useCodeNavStore } from "~/store/useCodeNavStore";
 import { cn } from "~/lib/utils";
@@ -43,13 +42,8 @@ const OP_ICONS: Record<OpKind, LucideIcon> = {
 };
 
 export function FeatureTree() {
-  const cadCode = useModelStore((s) => s.cadCode);
-  const language = useModelStore((s) => s.language);
-  const ops = useMemo(
-    () => extractMeta(cadCode ?? "", language).ops,
-    [cadCode, language],
-  );
-  const [selected, setSelected] = useState<string | null>(null);
+  const meta = useModelMeta();
+  const ops = meta.ops;
   const [collapsed, setCollapsed] = useState(false);
   const navigateToLine = useCodeNavStore((s) => s.navigateToLine);
   const previewOp = useDocumentsStore((s) => s.previewOp);
@@ -59,8 +53,17 @@ export function FeatureTree() {
       null,
   );
 
+  const finalOpId = useMemo(() => {
+    if (ops.length === 0) return null;
+    const final = ops.find((o) => o.kind === "final");
+    return final?.id ?? ops[ops.length - 1].id;
+  }, [ops]);
+
+  const previewActive =
+    previewingOpId !== null && ops.some((o) => o.id === previewingOpId);
+  const activeOpId = (previewActive ? previewingOpId : null) ?? finalOpId;
+
   const handleSelect = (op: OpNode) => {
-    setSelected(op.id);
     navigateToLine(op.line);
     void previewOp(op);
   };
@@ -91,7 +94,7 @@ export function FeatureTree() {
               <TreeRow
                 key={op.id}
                 op={op}
-                selected={selected === op.id}
+                selected={activeOpId === op.id}
                 previewing={previewingOpId === op.id}
                 onSelect={handleSelect}
               />

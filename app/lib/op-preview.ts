@@ -108,15 +108,22 @@ function buildBuild123dPreviewCode(code: string, op: OpNode): string | null {
 
 function isBalanced(code: string): boolean {
   let depth = 0;
-  let inString: '"' | "'" | null = null;
-  for (let i = 0; i < code.length; i++) {
+  let i = 0;
+  while (i < code.length) {
     const ch = code[i];
-    if (inString) {
-      if (ch === "\\") {
+    const triple = code[i] + code[i + 1] + code[i + 2];
+    if (triple === `"""` || triple === "'''") {
+      i += 3;
+      let closed = false;
+      while (i < code.length) {
+        if (code[i] + code[i + 1] + code[i + 2] === triple) {
+          i += 3;
+          closed = true;
+          break;
+        }
         i++;
-        continue;
       }
-      if (ch === inString) inString = null;
+      if (!closed) return false;
       continue;
     }
     if (ch === "#") {
@@ -124,7 +131,20 @@ function isBalanced(code: string): boolean {
       continue;
     }
     if (ch === '"' || ch === "'") {
-      inString = ch;
+      const quote = ch;
+      i++;
+      while (i < code.length) {
+        if (code[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (code[i] === quote) {
+          i++;
+          break;
+        }
+        if (code[i] === "\n") break;
+        i++;
+      }
       continue;
     }
     if (ch === "(" || ch === "[" || ch === "{") depth++;
@@ -132,6 +152,7 @@ function isBalanced(code: string): boolean {
       depth--;
       if (depth < 0) return false;
     }
+    i++;
   }
-  return depth === 0 && inString === null;
+  return depth === 0;
 }

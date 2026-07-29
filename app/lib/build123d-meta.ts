@@ -1,36 +1,11 @@
-import type { OpKind, OpNode, ParamDef, ParamType, ModelMeta } from "~/types";
-
-const OP_KINDS: ReadonlySet<string> = new Set([
-  "sketch",
-  "extrude",
-  "cut",
-  "revolve",
-  "fillet",
-  "chamfer",
-  "pattern",
-  "shell",
-  "hole",
-  "offset",
-  "hull",
-  "union",
-  "intersection",
-  "mirror",
-  "rotate",
-  "translate",
-  "scale",
-  "final",
-]);
+import type { OpNode, ParamDef, ParamType, ModelMeta } from "~/types";
+import { normalizeOpKind } from "./op-kinds";
 
 const OP_RE = /@op:(\w+)\s*(?:"([^"]*)")?/;
 const GROUP_RE = /@group\s+(.+)/;
 const PARAM_RE = /@param\s+(\w+)\s+(public|private)\s*(.*)/;
 const ASSIGN_RE = /^(\w+)\s*=\s*([^#\n]+?)\s*(?:#.*)?$/;
 const NUM_RE = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/;
-
-function normalizeOpKind(raw: string): OpKind {
-  const lower = raw.toLowerCase();
-  return OP_KINDS.has(lower) ? (lower as OpKind) : "other";
-}
 
 function parseValue(
   raw: string,
@@ -191,5 +166,3 @@ export function extractBuild123dMeta(code: string): ModelMeta {
 
   return { params, ops };
 }
-
-export const EMPTY_BUILD123D_META: ModelMeta = { params: [], ops: [] };
