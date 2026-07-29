@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileUIPart } from "ai";
 import { toast } from "sonner";
 import { AlertTriangle, ArrowUp, FilePlus2, Loader2, MessageSquare, Paperclip, RotateCcw, ScanEye, Square, X } from "lucide-react";
@@ -119,6 +119,37 @@ export function ChatPanel() {
     status === "submitted" ||
     (status === "streaming" && !assistantHasVisibleParts(messages));
   const errorInfo = describeChatError(error);
+
+  // For each build part in the thread, resolve the code of the previous build
+  // so the chat can show a +/− diff summary instead of the full listing.
+  // The map is rebuilt when messages change, but the reader callback stays
+  // stable (reads via ref) so memoized ChatMessage children don't re-render
+  // on every streaming token.
+  const previousCodeMap = useMemo(() => {
+    const map = new Map<string, string | undefined>();
+    let prev: string | undefined;
+    for (const message of messages) {
+      const buildParts = (
+        message.parts as unknown as Array<{
+          type: string;
+          input?: { code?: string };
+        }>
+      ).filter((p) => p.type === "tool-update_model");
+      buildParts.forEach((p, i) => {
+        map.set(`${message.id}#${i}`, prev);
+        const code = p.input?.code;
+        if (code) prev = code;
+      });
+    }
+    return map;
+  }, [messages]);
+  const previousCodeRef = useRef(previousCodeMap);
+  previousCodeRef.current = previousCodeMap;
+  const previousCodeFor = useCallback(
+    (messageId: string, buildIndex: number) =>
+      previousCodeRef.current.get(`${messageId}#${buildIndex}`),
+    [],
+  );
   const mode = useChatModeStore((s) => s.mode);
   const setMode = useChatModeStore((s) => s.setMode);
   const model = useSettingsStore((s) => s.model);
@@ -306,7 +337,11 @@ export function ChatPanel() {
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           <div className="flex min-w-0 flex-col py-2">
             {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
+              <ChatMessage
+                key={message.id}
+                message={message}
+                previousCodeFor={previousCodeFor}
+              />
             ))}
             {showThinking && (
               <AssistantStatusMessage padded>

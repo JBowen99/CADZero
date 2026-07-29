@@ -1,10 +1,19 @@
-import { memo, startTransition, useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, RotateCcw } from "lucide-react";
+import { memo, startTransition, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Copy,
+  RotateCcw,
+} from "lucide-react";
 import type { UIMessage } from "ai";
 import { AssistantStatusMessage } from "~/components/AssistantStatusMessage";
-import { CodeBlock } from "~/components/CodeBlock";
+import { Button } from "~/components/ui/button";
+import { DiffView } from "~/components/DiffView";
 import { MessageSelectionContext } from "~/components/MessageSelectionContext";
 import { MessageMeasurementContext } from "~/components/MessageMeasurementContext";
+import { computeDiff } from "~/lib/diff";
 import { cn } from "~/lib/utils";
 import type { ChatMessageMetadata } from "~/types";
 
@@ -28,7 +37,13 @@ interface ImagePart {
   filename?: string;
 }
 
-function BuildCard({ part }: { part: BuildPart }) {
+function BuildCard({
+  part,
+  previousCode,
+}: {
+  part: BuildPart;
+  previousCode?: string;
+}) {
   const state = part.state;
   const streamingInput = state === "input-streaming";
   const done = state === "output-available" || state === "output-error";
@@ -36,11 +51,28 @@ function BuildCard({ part }: { part: BuildPart }) {
   const failed = done && out?.success === false;
   const code = part.input?.code ?? "";
   const showCode = !!code && !streamingInput;
-  const [codeReady, setCodeReady] = useState(false);
+  const language = part.input?.language ?? "openscad";
 
-  // Defer mounting the full <pre> so status UI can paint first.
+  const [open, setOpen] = useState(false);
+  const [codeReady, setCodeReady] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const lineCount = useMemo(
+    () => (code ? code.split("\n").length : 0),
+    [code],
+  );
+  const diff = useMemo(
+    () =>
+      previousCode != null && showCode && code
+        ? computeDiff(previousCode, code)
+        : null,
+    [previousCode, showCode, code],
+  );
+  const hasChanges = !!diff && (diff.added > 0 || diff.removed > 0);
+
+  // Defer mounting the <pre> until expanded so streaming status paints first.
   useEffect(() => {
-    if (!showCode) {
+    if (!showCode || !open) {
       setCodeReady(false);
       return;
     }
@@ -54,7 +86,18 @@ function BuildCard({ part }: { part: BuildPart }) {
       cancelled = true;
       cancelAnimationFrame(id);
     };
-  }, [showCode, code]);
+  }, [showCode, open, code]);
+
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard not available */
+    }
+  };
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -66,11 +109,71 @@ function BuildCard({ part }: { part: BuildPart }) {
       {streamingInput && (
         <AssistantStatusMessage>Generating code…</AssistantStatusMessage>
       )}
-      {showCode && !codeReady && (
-        <AssistantStatusMessage>Preparing code…</AssistantStatusMessage>
-      )}
-      {showCode && codeReady && (
-        <CodeBlock code={code} language={part.input?.language ?? "openscad"} />
+      {showCode && (
+        <div className="overflow-hidden rounded-md border bg-muted/40">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen((v) => !v);
+              }
+            }}
+            className="flex w-full cursor-pointer items-center gap-1.5 border-b bg-muted/60 px-2.5 py-1.5 text-left transition-colors hover:bg-muted"
+          >
+            <ChevronRight
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-90",
+              )}
+            />
+            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+              {language}
+            </span>
+            {hasChanges ? (
+              <span className="font-mono text-[11px] tabular-nums">
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  +{diff!.added}
+                </span>
+                {" "}
+                <span className="text-destructive">−{diff!.removed}</span>
+              </span>
+            ) : (
+              lineCount > 0 && (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {lineCount} {lineCount === 1 ? "line" : "lines"}
+                </span>
+              )
+            )}
+            <span className="ml-auto" />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={copy}
+              aria-label="Copy code"
+            >
+              {copied ? (
+                <Check className="text-emerald-500" />
+              ) : (
+                <Copy className="text-muted-foreground" />
+              )}
+            </Button>
+          </div>
+          {open && !codeReady && (
+            <AssistantStatusMessage>Preparing code…</AssistantStatusMessage>
+          )}
+          {open && codeReady &&
+            (hasChanges ? (
+              <DiffView lines={diff!.lines} />
+            ) : (
+              <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
+                <code className="font-mono">{code}</code>
+              </pre>
+            ))}
+        </div>
       )}
       {!streamingInput && !done && (
         <AssistantStatusMessage>Rendering model…</AssistantStatusMessage>
@@ -104,9 +207,13 @@ function BuildCard({ part }: { part: BuildPart }) {
 
 interface ChatMessageProps {
   message: UIMessage;
+  previousCodeFor?: (messageId: string, buildIndex: number) => string | undefined;
 }
 
-function ChatMessageBase({ message }: ChatMessageProps) {
+function ChatMessageBase({
+  message,
+  previousCodeFor,
+}: ChatMessageProps) {
   const isUser = message.role === "user";
   const isRestoreEvent =
     (message as { kind?: string }).kind === "restore";
@@ -192,7 +299,11 @@ function ChatMessageBase({ message }: ChatMessageProps) {
           </div>
         )}
         {buildParts.map((part, i) => (
-          <BuildCard key={i} part={part} />
+          <BuildCard
+            key={i}
+            part={part}
+            previousCode={previousCodeFor?.(message.id, i)}
+          />
         ))}
       </div>
     </div>
