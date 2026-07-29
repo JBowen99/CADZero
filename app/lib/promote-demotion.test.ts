@@ -81,3 +81,43 @@ describe("toggleParamVisibility — OpenSCAD", () => {
     expect(toggleParamVisibility(code, "missing", "openscad")).toBe(code);
   });
 });
+
+describe("toggleParamVisibility — OpenSCAD empty-section cleanup", () => {
+  it("removes the source section once it is emptied", () => {
+    const code = ["/* [Dimensions] */", "width = 50;"].join("\n");
+    const out = toggleParamVisibility(code, "width", "openscad");
+    expect(out).not.toContain("/* [Dimensions] */");
+    expect(out).toContain("/* [Hidden] */");
+  });
+
+  it("keeps the source section when other params remain in it", () => {
+    const code = [
+      "/* [Dimensions] */",
+      "width = 50;",
+      "depth = 30;",
+    ].join("\n");
+    const out = toggleParamVisibility(code, "width", "openscad");
+    expect(out).toContain("/* [Dimensions] */");
+    expect(out.indexOf("depth = 30;")).toBeLessThan(
+      out.indexOf("/* [Hidden] */"),
+    );
+  });
+
+  it("removes an emptied section at the top of the file", () => {
+    const code = [
+      "/* [Dimensions] */",
+      "width = 50;",
+      "/* [Features] */",
+      "holes = 4;",
+    ].join("\n");
+    const out = toggleParamVisibility(code, "width", "openscad");
+    expect(out).not.toContain("/* [Dimensions] */");
+    expect(out).toContain("/* [Features] */");
+  });
+
+  it("does not leave double blank lines behind", () => {
+    const code = ["/* [Dimensions] */", "", "width = 50;"].join("\n");
+    const out = toggleParamVisibility(code, "width", "openscad");
+    expect(out).not.toMatch(/\n{2,}/);
+  });
+});

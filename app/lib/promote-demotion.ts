@@ -89,23 +89,44 @@ function toggleScadParamVisibility(code: string, paramName: string): string {
 
   without.splice(insertIdx, 0, ...block);
 
-  for (let i = without.length - 1; i >= 1; i--) {
-    const m = sectionRe.exec(without[i]);
-    if (!m) continue;
-    const prev = without[i - 1];
-    const next = without[i + 1];
-    const nextIsSection = next && sectionRe.test(next);
-    const nextIsBlank = !next || next.trim() === "";
-    if ((nextIsSection || nextIsBlank) && (prev.trim() === "" || sectionRe.test(prev))) {
-      if (next && next.trim() === "") without.splice(i + 1, 1);
-      without.splice(i, 1);
-      if (i > 0 && without[i - 1].trim() === "" && i < without.length) {
-        without.splice(i - 1, 1);
-      }
-    }
-  }
+  return pruneEmptySections(without).join("\n");
+}
 
-  return without.join("\n");
+const PRUNE_SECTION_RE = /\/\*\s*\[([^\]]+)\]\s*\*\//;
+
+// Removes section headers left empty by a move, in a single pass with no
+// in-place mutation during iteration. A header is "empty" when the line
+// immediately after it is blank, another section header, or EOF. The
+// following blank line (if any) is dropped too, and any double blanks or
+// leading/trailing blanks left behind are collapsed.
+function pruneEmptySections(lines: string[]): string[] {
+  const drop = new Set<number>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!PRUNE_SECTION_RE.test(lines[i])) continue;
+    const next = lines[i + 1];
+    const isEmpty =
+      next === undefined || next.trim() === "" || PRUNE_SECTION_RE.test(next);
+    if (!isEmpty) continue;
+    drop.add(i);
+    if (next !== undefined && next.trim() === "") drop.add(i + 1);
+  }
+  if (drop.size === 0) return lines;
+
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (drop.has(i)) continue;
+    const line = lines[i];
+    if (
+      line.trim() === "" &&
+      kept[kept.length - 1]?.trim() === ""
+    ) {
+      continue;
+    }
+    kept.push(line);
+  }
+  while (kept.length > 0 && kept[0].trim() === "") kept.shift();
+  while (kept.length > 0 && kept[kept.length - 1].trim() === "") kept.pop();
+  return kept;
 }
 
 function escapeRegex(s: string): string {
