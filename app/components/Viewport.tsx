@@ -1189,12 +1189,12 @@ export function Viewport() {
         </div>
       )}
       {processing ? (
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />
           Processing mesh…
         </div>
       ) : rendering || building ? (
-        <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border bg-background/80 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
           <Loader2 className="size-3.5 animate-spin" />
           Rendering…
         </div>
@@ -1204,13 +1204,13 @@ export function Viewport() {
             <button
               type="button"
               onClick={() => void renderActiveCode()}
-              className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 shadow-sm hover:bg-amber-500/20 dark:text-amber-400"
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 shadow-sm hover:bg-amber-500/20 dark:text-amber-400"
             >
               <TriangleAlert className="size-3.5" />
               Out of sync
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">
+          <TooltipContent side="top">
             The shown model doesn't match the current code. Click to render.
           </TooltipContent>
         </Tooltip>

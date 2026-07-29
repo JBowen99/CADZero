@@ -678,7 +678,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       }
       const previewCode = buildPreviewCode(doc.cadCode, op, doc.language);
       if (!previewCode) {
-        console.warn("[previewOp] buildPreviewCode returned null for", op);
+        toast.error("Preview not available", {
+          description: `Could not build preview for "${op.name}" (${op.rawKind})`,
+        });
         if (doc.previewingOpId) get().exitOpPreview();
         return;
       }
@@ -695,9 +697,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
           stderr?: string;
         } | null;
         if (!out?.ok || !out.meshId) {
-          console.error("[previewOp] render failed", {
-            stderr: out?.stderr?.slice(0, 500),
-            previewCode: previewCode.slice(0, 500),
+          toast.error("Preview render failed", {
+            description: (out?.stderr ?? "Unknown error").slice(0, 300),
           });
           return;
         }

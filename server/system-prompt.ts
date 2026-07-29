@@ -134,11 +134,13 @@ const BUILD123D_PARAMETRIC_PROMPT = `PARAMETRIC MODE IS ON. In addition to the r
 
 3. Mark each modeling operation with an \`# @op\` marker comment on the same line as the relevant builder call, so the feature tree can list it:
    \`\`\`
-   rectangle(width, depth)                # @op:sketch "Base Profile"
-   extrude(amount=8)                      # @op:extrude "Pad"
-   hole(radius=hole_dia/2)                # @op:hole "Center Hole"
+    rectangle(width, depth)                # @op:sketch "Base Profile"
+    extrude(amount=8)                      # @op:extrude "Pad"
+    hole(radius=hole_dia/2)                # @op:hole "Center Hole"
    \`\`\`
    Use these op kinds when they fit: sketch, extrude, cut, revolve, fillet, chamfer, pattern, hole, offset, hull, union, intersection, final. The name in quotes is what appears in the tree.
+
+5. CRITICAL — you MUST use the \`with Build() as ctx:\` builder pattern for the entire model. Do NOT use the algebraic API (Box(...), Cylinder(...) with +, -, & operators) in parametric mode. The application previews intermediate steps by truncating the build context and reading \`ctx.part\` — this only works with the sequential builder API. Assign the final result with \`result = ctx.part\`.
 
 4. Example of a complete parametric Build123D script:
    \`\`\`

@@ -77,14 +77,11 @@ function buildScadPreviewCode(code: string, op: OpNode): string | null {
 function buildBuild123dPreviewCode(code: string, op: OpNode): string | null {
   const lines = code.split("\n");
 
-  let ctxVar = "ctx";
-  for (const line of lines) {
-    const m = /with\s+Build\w*\s*\([^)]*\)\s+as\s+(\w+)/.exec(line);
-    if (m && /^\S/.test(line)) {
-      ctxVar = m[1];
-      break;
-    }
-  }
+  const ctxMatch = lines
+    .map((l) => /^with\s+Build\w*\s*\([^)]*\)\s+as\s+(\w+)/.exec(l))
+    .find((m) => m);
+  if (!ctxMatch) return null;
+  const ctxVar = ctxMatch[1];
 
   const kept = lines.slice(0, op.line + 1);
 
