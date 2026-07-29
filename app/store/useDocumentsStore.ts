@@ -700,38 +700,57 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         if (doc.previewingOpId) get().exitOpPreview();
         return;
       }
+      // Cancel any in-flight preview so only the latest click can commit
+      // its mesh + badge.
+      abortPreview();
+      const controller = new AbortController();
+      previewAbort = controller;
+      const { signal } = controller;
+      const isLatest = () => previewAbort === controller;
       useModelStore.getState().setRendering(true);
       try {
         const res = await fetch(renderUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code: previewCode, language: doc.language }),
+          signal,
         });
+        if (signal.aborted) return;
         const out = (await res.json().catch(() => null)) as {
           ok?: boolean;
           meshId?: string;
           stderr?: string;
         } | null;
         if (!out?.ok || !out.meshId) {
-          toast.error("Preview render failed", {
-            description: (out?.stderr ?? "Unknown error").slice(0, 300),
-          });
+          if (!signal.aborted) {
+            toast.error("Preview render failed", {
+              description: (out?.stderr ?? "Unknown error").slice(0, 300),
+            });
+          }
           return;
         }
-        const meshRes = await fetch(meshUrl(out.meshId));
-        if (!meshRes.ok) return;
+        const meshRes = await fetch(meshUrl(out.meshId), { signal });
+        if (signal.aborted || !meshRes.ok) return;
         const mesh = await decodeMesh(meshRes);
+        if (signal.aborted) return;
         useModelStore.getState().setModel(mesh, doc.cadCode, doc.language, null);
         setActiveDocFields({
           previewingOpId: op.id,
           previewingOpName: op.name,
         });
+      } catch {
+        // Aborted requests throw; unexpected errors are surfaced via the
+        // out.ok branch above. Nothing to do for an aborted preview.
       } finally {
-        useModelStore.getState().setRendering(false);
+        if (isLatest()) {
+          previewAbort = null;
+          useModelStore.getState().setRendering(false);
+        }
       }
     },
 
     exitOpPreview: () => {
+      abortPreview();
       const doc = get().openDocs.find(
         (d) => d.clientId === get().activeClientId,
       );
