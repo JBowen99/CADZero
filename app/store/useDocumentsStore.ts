@@ -152,6 +152,15 @@ function deriveActive(openDocs: OpenDoc[], activeClientId: string | null) {
   };
 }
 
+// Tracks the in-flight op-preview request so a new preview (or a full
+// render) can cancel it and ignore its late response.
+let previewAbort: AbortController | null = null;
+
+function abortPreview(): void {
+  previewAbort?.abort();
+  previewAbort = null;
+}
+
 export const useDocumentsStore = create<DocumentsState>((set, get) => {
   function buildState(openDocs: OpenDoc[], activeClientId: string | null) {
     return { openDocs, activeClientId, ...deriveActive(openDocs, activeClientId) };
@@ -414,6 +423,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
       if (!doc.cadCode.trim()) {
         return { ok: false, message: "Nothing to render — code is empty." };
       }
+      abortPreview();
       useModelStore.getState().setRendering(true);
       try {
         let res: Response;
@@ -456,7 +466,13 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         useModelStore
           .getState()
           .setModel(mesh, doc.cadCode, doc.language, topology);
-        setActiveDocFields({ mesh, topology, meshCode: doc.cadCode });
+        setActiveDocFields({
+          mesh,
+          topology,
+          meshCode: doc.cadCode,
+          previewingOpId: null,
+          previewingOpName: null,
+        });
         return { ok: true };
       } finally {
         useModelStore.getState().setRendering(false);
