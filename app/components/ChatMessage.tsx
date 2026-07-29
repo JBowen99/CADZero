@@ -10,9 +10,10 @@ import {
 import type { UIMessage } from "ai";
 import { AssistantStatusMessage } from "~/components/AssistantStatusMessage";
 import { Button } from "~/components/ui/button";
+import { DiffView } from "~/components/DiffView";
 import { MessageSelectionContext } from "~/components/MessageSelectionContext";
 import { MessageMeasurementContext } from "~/components/MessageMeasurementContext";
-import { lineDiff } from "~/lib/diff";
+import { computeDiff } from "~/lib/diff";
 import { cn } from "~/lib/utils";
 import type { ChatMessageMetadata } from "~/types";
 
@@ -61,9 +62,10 @@ function BuildCard({
     [code],
   );
   const diff = useMemo(
-    () => (previousCode != null && code ? lineDiff(previousCode, code) : null),
+    () => (previousCode != null && code ? computeDiff(previousCode, code) : null),
     [previousCode, code],
   );
+  const hasChanges = !!diff && (diff.added > 0 || diff.removed > 0);
 
   // Defer mounting the <pre> until expanded so streaming status paints first.
   useEffect(() => {
@@ -121,13 +123,13 @@ function BuildCard({
             <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
               {language}
             </span>
-            {diff ? (
+            {hasChanges ? (
               <span className="font-mono text-[11px] tabular-nums">
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  +{diff.added}
+                  +{diff!.added}
                 </span>
                 {" "}
-                <span className="text-destructive">−{diff.removed}</span>
+                <span className="text-destructive">−{diff!.removed}</span>
               </span>
             ) : (
               lineCount > 0 && (
@@ -153,11 +155,14 @@ function BuildCard({
           {open && !codeReady && (
             <AssistantStatusMessage>Preparing code…</AssistantStatusMessage>
           )}
-          {open && codeReady && (
-            <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
-              <code className="font-mono">{code}</code>
-            </pre>
-          )}
+          {open && codeReady &&
+            (hasChanges ? (
+              <DiffView lines={diff!.lines} />
+            ) : (
+              <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
+                <code className="font-mono">{code}</code>
+              </pre>
+            ))}
         </div>
       )}
       {!streamingInput && !done && (
