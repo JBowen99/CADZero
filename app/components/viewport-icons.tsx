@@ -20,9 +20,9 @@ export function GridPlaneIcon({ className }: IconProps) {
       aria-hidden="true"
       {...stroke}
     >
-      <path d="M12 3 L21 10 L12 17 L3 10 Z" />
-      <path d="M14.25 4.75 L5.25 11.75 M16.5 6.5 L7.5 13.5 M18.75 8.25 L9.75 15.25" />
-      <path d="M9.75 4.75 L18.75 11.75 M7.5 6.5 L16.5 13.5 M5.25 8.25 L14.25 15.25" />
+      <path d="M12 5 L20.5 12 L12 19 L3.5 12 Z" />
+      <path d="M14.13 6.75 L5.63 13.75 M16.25 8.5 L7.75 15.5 M18.38 10.25 L9.88 17.25" />
+      <path d="M9.88 6.75 L18.38 13.75 M7.75 8.5 L16.25 15.5 M5.63 10.25 L14.13 17.25" />
     </svg>
   );
 }
@@ -39,14 +39,14 @@ export function AxesIcon({ className }: IconProps) {
       aria-hidden="true"
       {...stroke}
     >
-      <path d="M12 14 L12 3.5" />
-      <path d="M12 14 L20 19.5" />
-      <path d="M12 14 L4 19.5" />
+      <path d="M12 13.5 L12 5" />
+      <path d="M12 13.5 L19 19" />
+      <path d="M12 13.5 L5 19" />
     </svg>
   );
 }
 
-/** View cube: a wireframe cube in the same perspective. */
+/** View cube: a wireframe cube viewed from the front-top, centered. */
 export function CubeIcon({ className }: IconProps) {
   return (
     <svg
@@ -58,8 +58,8 @@ export function CubeIcon({ className }: IconProps) {
       aria-hidden="true"
       {...stroke}
     >
-      <path d="M12 4.5 L18 9 L18 16.5 L12 21 L6 16.5 L6 9 Z" />
-      <path d="M12 12 L12 4.5 M12 12 L18 16.5 M12 12 L6 16.5" />
+      <path d="M12 4.5 L18 8.25 L18 15.75 L12 19.5 L6 15.75 L6 8.25 Z" />
+      <path d="M12 12 L12 19.5 M12 12 L6 8.25 M12 12 L18 8.25" />
     </svg>
   );
 }
