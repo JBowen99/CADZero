@@ -814,7 +814,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => {
         const res = await fetch(partsUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: trimmed, language: active.language }),
+          body: JSON.stringify({
+              name: trimmed,
+              language: active.language,
+              parametric: active.parametric,
+            }),
         });
         if (!res.ok) throw new Error(`Create failed (status ${res.status})`);
         meta = await res.json();
