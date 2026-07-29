@@ -18,11 +18,16 @@ import {
   useBounds,
 } from "@react-three/drei";
 import { useTheme } from "next-themes";
-import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, Disc, FilePlus2, FolderOpen, Grid2x2, Grid3x3, Loader2, Maximize2, RotateCcw, Ruler, Slash, Square, Target, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Axis3d, Box, CircleDot, Compass, Crosshair, FilePlus2, FolderOpen, Grid2x2, Loader2, Maximize2, RotateCcw, Ruler, Slash, Square, Target, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { RubiksGizmo } from "~/components/RubiksGizmo";
+import {
+  ShadedIcon,
+  SolidIcon,
+  WireframeIcon,
+} from "~/components/view-mode-icons";
 import { SelectionIndicator } from "~/components/SelectionIndicator";
 import { PartsBrowser } from "~/components/PartsBrowser";
 import { MeasurePanel } from "~/components/MeasurePanel";
@@ -66,10 +71,14 @@ interface GridColors {
 type SelectMode = "off" | "all" | "precise";
 type SelectKind = "face" | "edge" | "vertex";
 
-const VIEW_MODES: { value: ViewMode; label: string; icon: typeof Box }[] = [
-  { value: "solid", label: "Solid", icon: Box },
-  { value: "shaded", label: "Shaded", icon: Disc },
-  { value: "wireframe", label: "Wireframe", icon: Grid3x3 },
+const VIEW_MODES: {
+  value: ViewMode;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { value: "solid", label: "Solid", icon: SolidIcon },
+  { value: "shaded", label: "Shaded", icon: ShadedIcon },
+  { value: "wireframe", label: "Wireframe", icon: WireframeIcon },
 ];
 
 const PRECISE_KINDS: { value: SelectKind; label: string; icon: typeof Box }[] = [
